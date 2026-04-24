@@ -22,6 +22,7 @@ import RenewalsTab from "@/components/contracts/RenewalsTab";
 import { usePagination } from "@/hooks/use-pagination";
 import { PaginationControls } from "@/components/PaginationControls";
 import { TableSkeleton } from "@/components/Skeletons";
+import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 
 const statusColors: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -48,7 +49,7 @@ export default function Contracts() {
   const navigate = useNavigate();
   const { role } = useAuth();
   const isProvider = role === "provider";
-  const [search, setSearch] = useState("");
+  const { searchInput: search, searchQuery: debouncedSearch, setSearchInput: setSearch } = useDebouncedSearch();
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [dealTypeFilter, setDealTypeFilter] = useState("all");
@@ -61,18 +62,37 @@ export default function Contracts() {
   const pagination = usePagination(20);
 
   const { data: contractsData, isLoading } = useQuery({
-    queryKey: ["contracts", statusFilter, typeFilter, search, sortField, sortDir, pagination.page],
+    queryKey: ["v-contract-list", statusFilter, typeFilter, debouncedSearch, sortField, sortDir, pagination.page],
     queryFn: async () => {
+      const orderCol =
+        sortField === "provider"
+          ? "provider_business_name"
+          : sortField === "contract_type"
+          ? "contract_type"
+          : sortField === "deal_value"
+          ? "deal_value"
+          : sortField === "start_date"
+          ? "start_date"
+          : sortField === "end_date"
+          ? "end_date"
+          : sortField === "status"
+          ? "status"
+          : "created_at";
       let q = supabase
-        .from("contracts")
-        .select("*, providers(business_name, assigned_sales_rep), profiles(full_name)", { count: "exact" })
-        .order(sortField === "provider" ? "created_at" : sortField === "contract_type" ? "contract_type" : sortField === "deal_value" ? "deal_value" : sortField === "start_date" ? "start_date" : sortField === "end_date" ? "end_date" : sortField === "status" ? "status" : "created_at", { ascending: sortDir === "asc" });
+        .from("v_contract_list" as any)
+        .select("*", { count: "exact" })
+        .order(orderCol, { ascending: sortDir === "asc" });
       if (statusFilter !== "all") q = q.eq("status", statusFilter as any);
       if (typeFilter !== "all") q = q.eq("contract_type", typeFilter as any);
+      if (debouncedSearch) {
+        q = q.or(
+          `provider_business_name.ilike.%${debouncedSearch}%,contract_type.ilike.%${debouncedSearch}%,terms_summary.ilike.%${debouncedSearch}%`
+        );
+      }
       q = q.range(pagination.from, pagination.to);
       const { data, error, count } = await q;
       if (error) throw error;
-      return { data: data ?? [], count: count ?? 0 };
+      return { data: ((data as any[]) ?? []), count: count ?? 0 };
     },
   });
 
@@ -123,14 +143,10 @@ export default function Contracts() {
     return map;
   }, [pipelineDeals]);
 
-  // Server-side pagination handles most filtering; client-side only for dealType, search, and outdated
+  // Server-side handles search, status, type filtering; client-side only for dealType and outdated
   const filtered = useMemo(() => {
     if (!contracts) return [];
     let list = [...contracts];
-    if (search) {
-      const s = search.toLowerCase();
-      list = list.filter(c => c.providers?.business_name?.toLowerCase().includes(s) || c.id.toLowerCase().includes(s));
-    }
     if (dealTypeFilter !== "all") {
       list = list.filter(c => dealTypeMap[c.provider_id]?.name === dealTypeFilter);
     }
@@ -138,7 +154,7 @@ export default function Contracts() {
       list = list.filter(c => outdatedProviderIds.includes(c.provider_id));
     }
     return list;
-  }, [contracts, search, dealTypeFilter, dealTypeMap, outdatedOnly, outdatedProviderIds]);
+  }, [contracts, dealTypeFilter, dealTypeMap, outdatedOnly, outdatedProviderIds]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -161,7 +177,7 @@ export default function Contracts() {
     const rows = filtered.filter((c) => selectedIds.size === 0 || selectedIds.has(c.id));
     const header = "Provider,Type,Deal Value,Status,Start Date,End Date,Renewal Date\n";
     const csv = header + rows.map((c) =>
-      `"${c.providers?.business_name || ""}","${c.contract_type}","${c.deal_value || 0}","${c.status}","${c.start_date || ""}","${c.end_date || ""}","${c.renewal_date || ""}"`
+      `"${c.provider_business_name || ""}","${c.contract_type}","${c.deal_value || 0}","${c.status}","${c.start_date || ""}","${c.end_date || ""}","${c.renewal_date || ""}"`
     ).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -170,13 +186,12 @@ export default function Contracts() {
     toast.success("Exported contracts");
   };
 
-  const isRenewalSoon = (date: string | null) => {
-    if (!date) return false;
-    const diff = (new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-    return diff >= 0 && diff <= 30;
+  const isRenewalSoonDays = (days: number | null | undefined) => {
+    if (days == null) return false;
+    return days >= 0 && days <= 30;
   };
 
-  const renewalCount = contracts?.filter((c) => isRenewalSoon(c.renewal_date)).length || 0;
+  const renewalCount = contracts?.filter((c) => isRenewalSoonDays(c.days_until_renewal)).length || 0;
 
   return (
     <div className="space-y-6">
@@ -226,7 +241,7 @@ export default function Contracts() {
                       <div className="flex justify-between"><span className="text-muted-foreground">Start</span><span>{c.start_date || "—"}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">End</span><span>{c.end_date || "—"}</span></div>
                       {c.renewal_date && (
-                        <div className="flex justify-between"><span className="text-muted-foreground">Renewal</span><span className={isRenewalSoon(c.renewal_date) ? "text-warning font-semibold" : ""}>{c.renewal_date}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Renewal</span><span className={isRenewalSoonDays(c.days_until_renewal) ? "text-warning font-semibold" : ""}>{c.renewal_date}</span></div>
                       )}
                     </div>
                     {daysLeft !== null && daysLeft > 0 && (
@@ -359,7 +374,7 @@ export default function Contracts() {
                     ) : filtered.length > 0 ? (
                       filtered.map((c) => {
                         const dt = dealTypeMap[c.provider_id];
-                        const renewSoon = isRenewalSoon(c.renewal_date);
+                        const renewSoon = isRenewalSoonDays(c.days_until_renewal);
                         return (
                           <TableRow
                             key={c.id}
@@ -369,7 +384,7 @@ export default function Contracts() {
                             <TableCell onClick={(e) => e.stopPropagation()}>
                               <Checkbox checked={selectedIds.has(c.id)} onCheckedChange={() => toggleSelect(c.id)} />
                             </TableCell>
-                            <TableCell className="font-medium">{c.providers?.business_name || "—"}</TableCell>
+                            <TableCell className="font-medium">{c.provider_business_name || "—"}</TableCell>
                             <TableCell>
                               <Badge className={`capitalize ${typeColors[c.contract_type] || ""}`}>{c.contract_type}</Badge>
                             </TableCell>

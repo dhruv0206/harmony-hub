@@ -1,0 +1,6 @@
+business_name,contact_name,contact_email,contact_phone,address_line1,city,state,zip_code,provider_type,notes
+Edge Case Clinic,Emma Testcase,edge@clinic.test,555-000-0001,123 Main St,Hartford,CT,06103,Orthopedic,Normal row
+Missing Email Clinic,No Email,,555-000-0002,456 Oak Ave,Providence,RI,02903,Chiropractor,Has no email
+Blank Phone Clinic,Also Missing,noemail2@clinic.test,,789 Elm St,Manchester,NH,03101,Physical Therapy,No phone
+,Missing Name,missing@test.test,555-000-0003,111 First St,Portland,ME,04101,Sports Med,Missing business_name (should be skipped)
+Special Chars O'Brien & Sons LLC,"Dr. O'Brien, Jr.",obrien@special.test,555-000-0004,222 Second St,Burlington,VT,05401,Neurology,Has apostrophe & comma

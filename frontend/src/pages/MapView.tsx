@@ -96,11 +96,10 @@ export default function MapView() {
   const [viewMode, setViewMode] = useState<ViewMode>("providers");
 
   const { data: providers } = useQuery({
-    queryKey: ["map-providers"],
+    queryKey: ["map-v-provider-list"],
     queryFn: async () => {
-      const { data } = await supabase.from("providers").select("*, profiles(full_name)");
-      // Fallback: if lat/lng null but state exists, use state centroid
-      return (data ?? []).map(p => {
+      const { data } = await supabase.from("v_provider_list" as any).select("id, business_name, contact_email, latitude, longitude, city, state, status, provider_type, assigned_sales_rep, health_score, rep_name, billing_status, monthly_amount, tier_name, tier_code, category_name, active_contract_count");
+      return ((data as any[]) ?? []).map(p => {
         if (!p.latitude && p.state) {
           const st = US_STATES.find(s => s.abbr === p.state || s.name === p.state);
           if (st) return { ...p, latitude: st.lat, longitude: st.lng };
@@ -111,32 +110,16 @@ export default function MapView() {
   });
 
   const { data: lawFirms } = useQuery({
-    queryKey: ["map-law-firms"],
+    queryKey: ["map-v-law-firm-list"],
     queryFn: async () => {
-      const { data } = await supabase.from("law_firms").select("*");
-      return (data ?? []).map(f => {
+      const { data } = await supabase.from("v_law_firm_list" as any).select("id, firm_name, latitude, longitude, city, state, status, firm_size, practice_areas, rep_name, billing_status, monthly_amount, tier_name, tier_code");
+      return ((data as any[]) ?? []).map(f => {
         if (!f.latitude && f.state) {
           const st = US_STATES.find(s => s.abbr === f.state || s.name === f.state);
           if (st) return { ...f, latitude: st.lat, longitude: st.lng };
         }
         return f;
       });
-    },
-  });
-
-  const { data: lawFirmSubs } = useQuery({
-    queryKey: ["map-lf-subs"],
-    queryFn: async () => {
-      const { data } = await supabase.from("law_firm_subscriptions").select("law_firm_id, status, monthly_amount").in("status", ["active", "pending", "past_due", "suspended"]);
-      return data ?? [];
-    },
-  });
-
-  const { data: contracts } = useQuery({
-    queryKey: ["map-contracts"],
-    queryFn: async () => {
-      const { data } = await supabase.from("contracts").select("id, provider_id, deal_value, status");
-      return data ?? [];
     },
   });
 
@@ -148,62 +131,34 @@ export default function MapView() {
     },
   });
 
-  const { data: subscriptions } = useQuery({
-    queryKey: ["map-subscriptions"],
-    queryFn: async () => {
-      const { data } = await supabase.from("provider_subscriptions").select("provider_id, status, membership_tiers(short_code)").in("status", ["active", "pending", "past_due", "suspended"]);
-      return data ?? [];
-    },
-  });
-
-  const subByProvider = useMemo(() => {
-    const map: Record<string, any> = {};
-    (subscriptions ?? []).forEach((s: any) => { map[s.provider_id] = s; });
-    return map;
-  }, [subscriptions]);
-
-  const lfSubByFirm = useMemo(() => {
-    const map: Record<string, any> = {};
-    (lawFirmSubs ?? []).forEach((s: any) => { map[s.law_firm_id] = s; });
-    return map;
-  }, [lawFirmSubs]);
-
-  const uniqueStates = useMemo(() => [...new Set((providers ?? []).map(p => p.state).filter(Boolean))].sort(), [providers]);
-
-  const contractValues = useMemo(() => {
-    const m: Record<string, number> = {};
-    (contracts ?? []).filter(c => c.status === "active").forEach(c => { m[c.provider_id] = (m[c.provider_id] || 0) + (Number(c.deal_value) || 0); });
-    return m;
-  }, [contracts]);
+  const uniqueStates = useMemo(() => [...new Set((providers ?? []).map((p: any) => p.state).filter(Boolean))].sort(), [providers]);
 
   const filtered = useMemo(() => {
-    let result = providers ?? [];
-    if (filterStatus !== "all") result = result.filter(p => p.status === filterStatus);
-    if (filterState !== "all") result = result.filter(p => p.state === filterState);
-    if (filterRep !== "all") result = result.filter(p => p.assigned_sales_rep === filterRep);
+    let result = (providers ?? []) as any[];
+    if (filterStatus !== "all") result = result.filter((p: any) => p.status === filterStatus);
+    if (filterState !== "all") result = result.filter((p: any) => p.state === filterState);
+    if (filterRep !== "all") result = result.filter((p: any) => p.assigned_sales_rep === filterRep);
     return result;
   }, [providers, filterStatus, filterState, filterRep]);
 
   const filteredLawFirms = useMemo(() => {
-    let result = lawFirms ?? [];
-    if (filterStatus !== "all") result = result.filter(f => f.status === filterStatus);
-    if (filterState !== "all") result = result.filter(f => f.state === filterState);
+    let result = (lawFirms ?? []) as any[];
+    if (filterStatus !== "all") result = result.filter((f: any) => f.status === filterStatus);
+    if (filterState !== "all") result = result.filter((f: any) => f.state === filterState);
     return result;
   }, [lawFirms, filterStatus, filterState]);
 
   function getProviderColor(p: any): string {
     switch (colorMode) {
       case "tier": {
-        const sub = subByProvider[p.id];
-        const tc = sub ? (sub.membership_tiers as any)?.short_code : null;
+        const tc = p.tier_code;
         return tc ? (TIER_COLORS[tc] || "#6b7280") : "#6b7280";
       }
       case "billing": {
-        const sub = subByProvider[p.id];
-        return sub ? (BILLING_STATUS_COLORS[sub.status] || "#6b7280") : "#6b7280";
+        return p.billing_status ? (BILLING_STATUS_COLORS[p.billing_status] || "#6b7280") : "#6b7280";
       }
       case "health": {
-        const score = (p as any).health_score;
+        const score = p.health_score;
         if (score == null) return "#6b7280";
         if (score >= 80) return "#22c55e";
         if (score >= 60) return "#eab308";
@@ -217,8 +172,7 @@ export default function MapView() {
 
   function getLawFirmColor(f: any): string {
     if (colorMode === "billing") {
-      const sub = lfSubByFirm[f.id];
-      return sub ? (BILLING_STATUS_COLORS[sub.status] || "#6b7280") : "#6b7280";
+      return f.billing_status ? (BILLING_STATUS_COLORS[f.billing_status] || "#6b7280") : "#6b7280";
     }
     return STATUS_COLORS[f.status] || "#6b7280";
   }
@@ -268,14 +222,14 @@ export default function MapView() {
     const showProviders = viewMode === "providers" || viewMode === "both";
     const showLF = viewMode === "law_firms" || viewMode === "both";
 
-    const providerCoords = showProviders ? filtered.filter(p => p.latitude && p.longitude) : [];
-    const lfCoords = showLF ? filteredLawFirms.filter(f => f.latitude && f.longitude) : [];
+    const providerCoords = showProviders ? filtered.filter((p: any) => p.latitude && p.longitude) : [];
+    const lfCoords = showLF ? filteredLawFirms.filter((f: any) => f.latitude && f.longitude) : [];
 
     if (showHeatmap && (providerCoords.length > 0 || lfCoords.length > 0)) {
       try {
         const heatData = [
-          ...providerCoords.map(p => [p.latitude!, p.longitude!, 1]),
-          ...lfCoords.map(f => [f.latitude!, f.longitude!, 1]),
+          ...providerCoords.map((p: any) => [p.latitude!, p.longitude!, 1]),
+          ...lfCoords.map((f: any) => [f.latitude!, f.longitude!, 1]),
         ];
         // @ts-ignore
         const heat = L.heatLayer(heatData, { radius: 30, blur: 20, maxZoom: 10 });
@@ -286,8 +240,8 @@ export default function MapView() {
     if (showCoverage) {
       const coverageGroup = L.layerGroup();
       const stateCounts: Record<string, number> = {};
-      if (showProviders) (providers ?? []).forEach(p => { if (p.state) stateCounts[p.state] = (stateCounts[p.state] || 0) + 1; });
-      if (showLF) (lawFirms ?? []).forEach(f => { if (f.state) stateCounts[f.state] = (stateCounts[f.state] || 0) + 1; });
+      if (showProviders) (providers ?? []).forEach((p: any) => { if (p.state) stateCounts[p.state] = (stateCounts[p.state] || 0) + 1; });
+      if (showLF) (lawFirms ?? []).forEach((f: any) => { if (f.state) stateCounts[f.state] = (stateCounts[f.state] || 0) + 1; });
       const maxCount = Math.max(...Object.values(stateCounts), 1);
       US_STATES.filter(s => s.abbr !== "AK" && s.abbr !== "HI").forEach(state => {
         const count = stateCounts[state.abbr] || stateCounts[state.name] || 0;
@@ -305,20 +259,21 @@ export default function MapView() {
 
       // Provider markers
       if (showProviders) {
-        providerCoords.forEach(p => {
+        providerCoords.forEach((p: any) => {
           const color = getProviderColor(p);
           const marker = L.marker([p.latitude!, p.longitude!], { icon: createCircleIcon(color) });
-          const sub = subByProvider[p.id];
-          const tierInfo = sub ? `<p style="margin:0 0 2px;font-size:12px;">Tier: <strong>${(sub.membership_tiers as any)?.short_code || "—"}</strong> · Billing: <strong>${sub.status}</strong></p>` : "";
+          const tierInfo = (p.tier_code || p.billing_status)
+            ? `<p style="margin:0 0 2px;font-size:12px;">Tier: <strong>${p.tier_code || "—"}</strong> · Billing: <strong>${p.billing_status || "—"}</strong></p>`
+            : "";
           marker.bindPopup(`
             <div style="min-width:200px;font-family:system-ui,sans-serif;">
               <h3 style="margin:0 0 4px;font-size:14px;font-weight:600;">${p.business_name}</h3>
               <p style="margin:0 0 2px;font-size:12px;color:#666;">${[p.city, p.state].filter(Boolean).join(", ") || "No location"}</p>
-              <p style="margin:0 0 2px;font-size:12px;"><span style="display:inline-block;padding:2px 6px;border-radius:4px;background:${STATUS_COLORS[p.status] || "#6b7280"}20;color:${STATUS_COLORS[p.status] || "#6b7280"};font-size:11px;font-weight:500;text-transform:capitalize;">${p.status.replace(/_/g, " ")}</span></p>
+              <p style="margin:0 0 2px;font-size:12px;"><span style="display:inline-block;padding:2px 6px;border-radius:4px;background:${STATUS_COLORS[p.status] || "#6b7280"}20;color:${STATUS_COLORS[p.status] || "#6b7280"};font-size:11px;font-weight:500;text-transform:capitalize;">${(p.status || "prospect").replace(/_/g, " ")}</span></p>
               ${tierInfo}
               ${p.provider_type ? `<p style="margin:0 0 2px;font-size:12px;color:#666;">Type: ${p.provider_type}</p>` : ""}
-              <p style="margin:0 0 4px;font-size:12px;">Contract Value: <strong>$${(contractValues[p.id] || 0).toLocaleString()}</strong></p>
-              <p style="margin:0 0 2px;font-size:12px;color:#666;">Rep: ${p.profiles?.full_name || "Unassigned"}</p>
+              <p style="margin:0 0 4px;font-size:12px;">Active Contracts: <strong>${p.active_contract_count ?? 0}</strong></p>
+              <p style="margin:0 0 2px;font-size:12px;color:#666;">Rep: ${p.rep_name || "Unassigned"}</p>
               <a href="/providers/${p.id}" style="font-size:12px;color:#3b82f6;text-decoration:none;" onclick="event.preventDefault();window.__navigateProvider('${p.id}')">View Details →</a>
             </div>
           `);
@@ -328,11 +283,10 @@ export default function MapView() {
 
       // Law firm markers
       if (showLF) {
-        lfCoords.forEach(f => {
+        lfCoords.forEach((f: any) => {
           const color = getLawFirmColor(f);
           const marker = L.marker([f.latitude!, f.longitude!], { icon: createDiamondIcon(color) });
-          const sub = lfSubByFirm[f.id];
-          const monthlyFee = sub ? `$${Number(sub.monthly_amount).toLocaleString()}` : "—";
+          const monthlyFee = f.monthly_amount != null ? `$${Number(f.monthly_amount).toLocaleString()}` : "—";
           const practiceAreas = (f.practice_areas as string[] | null)?.join(", ") || "—";
           marker.bindPopup(`
             <div style="min-width:200px;font-family:system-ui,sans-serif;">
@@ -354,7 +308,7 @@ export default function MapView() {
 
       map.addLayer(clusterGroup); markersRef.current = clusterGroup;
     }
-  }, [filtered, filteredLawFirms, showHeatmap, showCoverage, colorMode, viewMode, contractValues, providers, lawFirms, subByProvider, lfSubByFirm]);
+  }, [filtered, filteredLawFirms, showHeatmap, showCoverage, colorMode, viewMode, providers, lawFirms]);
 
   useEffect(() => {
     (window as any).__navigateProvider = (id: string) => navigate(`/providers/${id}`);
@@ -362,8 +316,8 @@ export default function MapView() {
     return () => { delete (window as any).__navigateProvider; delete (window as any).__navigateLawFirm; };
   }, [navigate]);
 
-  const shownProviderCount = viewMode !== "law_firms" ? filtered.filter(p => p.latitude && p.longitude).length : 0;
-  const shownLFCount = viewMode !== "providers" ? filteredLawFirms.filter(f => f.latitude && f.longitude).length : 0;
+  const shownProviderCount = viewMode !== "law_firms" ? filtered.filter((p: any) => p.latitude && p.longitude).length : 0;
+  const shownLFCount = viewMode !== "providers" ? filteredLawFirms.filter((f: any) => f.latitude && f.longitude).length : 0;
 
   const isMobile = useIsMobile();
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);

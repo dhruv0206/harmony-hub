@@ -1,0 +1,6 @@
+firm_name,contact_name,contact_email,contact_phone,address_line1,city,state,zip_code,firm_size,website,notes
+Johnson & Associates,Mark Johnson,mark@johnsonlaw.test,512-555-1001,500 Congress Ave,Austin,TX,78701,medium,https://johnsonlaw.test,Personal injury specialty
+Rodriguez Legal Group,Carlos Rodriguez,carlos@rodriguezlegal.test,305-555-1002,1200 Brickell Ave,Miami,FL,33131,small,,Bilingual firm
+Chen & Partners LLP,Linda Chen,linda@chenpartners.test,415-555-1003,100 California St,San Francisco,CA,94111,large,https://chenpartners.test,Complex litigation
+Thompson Law Office,Jake Thompson,jake@thompsonlaw.test,303-555-1004,1700 Lincoln St,Denver,CO,80203,solo,,Solo practitioner
+Patel Law Firm,Priya Patel,priya@patellaw.test,212-555-1005,40 Wall St,New York,NY,10005,medium,https://patellaw.test,Immigration & civil

@@ -1,0 +1,4 @@
+business_name,contact_name,contact_email,contact_phone,address_line1,city,state,zip_code,provider_type,notes
+Austin Orthopedic Specialists,Dr. Sarah Johnson,sarah@austinortho.test,512-555-0101,4700 Seton Center Pkwy,Austin,TX,78759,Orthopedic Surgeon,Referred by network partner
+Denver Physical Therapy Center,Dr. Mike Chen,mike@denverpt.test,303-555-0102,1234 Broadway St,Denver,CO,80203,Physical Therapy,Large chain alternative
+Boston Chiropractic Group,Dr. Emily Rodriguez,emily@bostonchiro.test,617-555-0103,888 Commonwealth Ave,Boston,MA,02215,Chiropractor,Weekend availability

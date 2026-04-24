@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
@@ -18,7 +19,9 @@ export function GlobalSearch() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -32,13 +35,21 @@ export function GlobalSearch() {
   }, []);
 
   const search = useCallback(async (q: string) => {
-    if (!q || q.length < 2) { setResults([]); return; }
+    if (!q || q.length < 2) { setResults([]); setLoading(false); return; }
+    // Wait for auth before firing — otherwise queries run unauthenticated
+    // and RLS returns 0 rows on first open.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) { setResults([]); setLoading(false); return; }
+    setLoading(true);
     const s = `%${q}%`;
+    // contracts.id is uuid and contract_type is an enum — neither supports ilike.
+    // Search contracts by joined provider business_name instead.
+    // Same for sales_pipeline (id is uuid).
     const [providers, contracts, tickets, deals] = await Promise.all([
       supabase.from("providers").select("id, business_name, city, state").textSearch("search_vector", q, { type: "websearch" }).limit(10),
-      supabase.from("contracts").select("id, contract_type, providers(business_name)").or(`id.ilike.${s}`).limit(5),
+      supabase.from("contracts").select("id, contract_type, providers!inner(business_name)").ilike("providers.business_name", s).limit(5),
       supabase.from("support_tickets").select("id, subject").ilike("subject", s).limit(5),
-      supabase.from("sales_pipeline").select("id, providers(business_name), estimated_value").limit(5),
+      supabase.from("sales_pipeline").select("id, providers!inner(business_name), estimated_value").ilike("providers.business_name", s).limit(5),
     ]);
 
     const r: SearchResult[] = [];
@@ -63,12 +74,16 @@ export function GlobalSearch() {
       category: "deal", link: `/pipeline`,
     }));
     setResults(r);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => search(query), 300);
+    // Only fire search once user is available — prevents unauthenticated
+    // queries on first open after page load.
+    if (!user) return;
+    const timer = setTimeout(() => search(query), 150);
     return () => clearTimeout(timer);
-  }, [query, search]);
+  }, [query, search, user]);
 
   const select = (link: string) => {
     setOpen(false);
@@ -91,10 +106,12 @@ export function GlobalSearch() {
   const labels = { provider: "Providers", contract: "Contracts", ticket: "Tickets", deal: "Pipeline" };
 
   return (
-    <CommandDialog open={open} onOpenChange={setOpen}>
+    <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false}>
       <CommandInput placeholder="Search providers, contracts, tickets..." value={query} onValueChange={setQuery} />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        <CommandEmpty>
+          {loading ? "Searching..." : query.length < 2 ? "Type at least 2 characters." : "No results found."}
+        </CommandEmpty>
         {Object.entries(grouped).map(([cat, items]) => {
           const Icon = icons[cat as keyof typeof icons];
           return (

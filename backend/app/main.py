@@ -15,7 +15,15 @@ from .errors import (
 )
 from .logging_config import configure_logging
 from .middleware.request_id import RequestIdMiddleware
-from .routes import health, imports, jobs, places, provider_ops, webhooks
+from .routes import (
+    health,
+    imports,
+    jobs,
+    lead_finder,
+    places,
+    provider_ops,
+    webhooks,
+)
 from .services.places import close_client as close_places_client
 
 configure_logging()
@@ -43,14 +51,27 @@ app = FastAPI(
 # Middleware (registration order = execution order, outer-to-inner).
 # Request ID must be outer so it's bound before any error handlers log.
 app.add_middleware(RequestIdMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["X-Request-Id"],
-)
+_is_dev = settings.ENVIRONMENT.lower() not in ("production", "prod")
+if _is_dev:
+    # Dev: allow any origin. allow_credentials must be False when using wildcard.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r".*",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-Id"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-Id"],
+    )
+print(f"[CORS] env={settings.ENVIRONMENT} dev={_is_dev} origins_list={settings.cors_origins_list}", flush=True)
 
 # Exception handlers
 app.add_exception_handler(AppError, app_error_handler)
@@ -64,6 +85,7 @@ app.include_router(places.router)
 app.include_router(imports.router)
 app.include_router(jobs.router)
 app.include_router(provider_ops.router)
+app.include_router(lead_finder.router)
 app.include_router(webhooks.router)
 
 

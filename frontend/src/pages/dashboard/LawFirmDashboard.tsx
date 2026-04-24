@@ -49,7 +49,7 @@ export default function LawFirmDashboard() {
   const { data: tickets } = useQuery({
     queryKey: ["lf-my-tickets", lawFirm?.id],
     queryFn: async () => {
-      const { data } = await supabase.from("support_tickets").select("*").eq("provider_id", lawFirm!.id).order("created_at", { ascending: false });
+      const { data } = await supabase.from("support_tickets").select("*").eq("law_firm_id", lawFirm!.id).order("created_at", { ascending: false });
       return data ?? [];
     },
     enabled: !!lawFirm?.id,

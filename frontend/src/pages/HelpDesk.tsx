@@ -61,7 +61,7 @@ export default function HelpDesk() {
     queryFn: async () => {
       let q = supabase
         .from("support_tickets")
-        .select("*, providers(business_name), profiles(full_name)", { count: "exact" })
+        .select("*, providers(business_name), law_firms(firm_name), profiles(full_name)", { count: "exact" })
         .order(sortField, { ascending: sortDir === "asc" });
       if (statusFilter !== "all") q = q.eq("status", statusFilter as any);
       if (priorityFilter !== "all") q = q.eq("priority", priorityFilter as any);
@@ -260,7 +260,7 @@ export default function HelpDesk() {
                         {t.subject}
                         {isEscalated(t) && <AlertTriangle className="inline h-3.5 w-3.5 text-destructive ml-1" />}
                       </TableCell>
-                      <TableCell>{t.providers?.business_name || "—"}</TableCell>
+                      <TableCell>{t.providers?.business_name || (t as any).law_firms?.firm_name || "—"}</TableCell>
                       <TableCell className="capitalize">{t.category.replace(/_/g, " ")}</TableCell>
                       <TableCell><Badge className={`capitalize ${priorityColors[t.priority]}`}>{t.priority}</Badge></TableCell>
                       <TableCell><Badge className={`capitalize ${statusColors[t.status]}`}>{t.status.replace(/_/g, " ")}</Badge></TableCell>

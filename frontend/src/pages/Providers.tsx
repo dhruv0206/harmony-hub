@@ -26,6 +26,11 @@ import { PaginationControls } from "@/components/PaginationControls";
 import { TableSkeleton } from "@/components/Skeletons";
 import { CSVImportWizard, FieldMapping } from "@/components/import/CSVImportWizard";
 import { BulkUpdateWizard } from "@/components/import/BulkUpdateWizard";
+import {
+  geocodeAddress as backendGeocode,
+  importProvidersCsv,
+  getJobStatus,
+} from "@/lib/backend-api";
 
 
 const PROVIDER_IMPORT_FIELDS: FieldMapping[] = [
@@ -71,15 +76,6 @@ const BILLING_STATUS_COLORS: Record<string, string> = {
 
 type SortField = "business_name" | "city" | "status" | "created_at";
 type SortDir = "asc" | "desc";
-
-async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-  try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`);
-    const data = await res.json();
-    if (data.length > 0) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-  } catch {}
-  return null;
-}
 
 interface ProviderForm {
   business_name: string; contact_name: string; contact_email: string; contact_phone: string;
@@ -136,46 +132,32 @@ export default function Providers() {
   const pagination = usePagination(20);
 
   const { data: providersData, isLoading } = useQuery({
-    queryKey: ["providers-list", filterStatus, filterState, filterType, filterRep, sortField, sortDir, debouncedSearch, pagination.page],
+    queryKey: ["v-provider-list", filterStatus, filterState, filterType, filterRep, sortField, sortDir, debouncedSearch, pagination.page],
     queryFn: async () => {
-      let q = supabase
-        .from("providers")
-        .select("*, profiles(full_name), service_packages(name, short_code)", { count: "exact" });
-      if (filterStatus !== "all") q = q.eq("status", filterStatus as any);
+      let q = supabase.from("v_provider_list" as any).select("*", { count: "exact" });
+
+      // FTS replaces the ilike OR-chain
+      if (debouncedSearch) q = q.textSearch("search_vector", debouncedSearch, { type: "websearch", config: "english" });
+
+      if (filterStatus !== "all") q = q.eq("status", filterStatus);
       if (filterState !== "all") q = q.eq("state", filterState);
       if (filterType !== "all") q = q.eq("provider_type", filterType);
       if (filterRep !== "all") q = q.eq("assigned_sales_rep", filterRep);
-      if (debouncedSearch) q = q.or(`business_name.ilike.%${debouncedSearch}%,contact_name.ilike.%${debouncedSearch}%,contact_email.ilike.%${debouncedSearch}%`);
-      q = q.order(sortField, { ascending: sortDir === "asc" });
+
+      q = q.order(sortField === "status" ? "status" : sortField, { ascending: sortDir === "asc" });
       q = q.range(pagination.from, pagination.to);
+
       const { data, error, count } = await q;
       if (error) throw error;
-      return { data: data ?? [], count: count ?? 0 };
+      return { data: (data as any[]) ?? [], count: count ?? 0 };
     },
   });
 
-  const providers = providersData?.data;
+  const providers = providersData?.data as any[] | undefined;
   const totalProviders = providersData?.count ?? 0;
 
-  // Fetch subscriptions for billing columns
-  const { data: subscriptions } = useQuery({
-    queryKey: ["provider-subscriptions-list"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("provider_subscriptions")
-        .select("provider_id, monthly_amount, status, membership_tiers(name, short_code), specialty_categories(name, short_code)")
-        .in("status", ["active", "pending", "past_due", "suspended", "trial"]);
-      return data ?? [];
-    },
-  });
-
-  const subByProvider = useMemo(() => {
-    const map: Record<string, any> = {};
-    (subscriptions ?? []).forEach((s: any) => { map[s.provider_id] = s; });
-    return map;
-  }, [subscriptions]);
-
-  // Fetch all provider_documents for document status filtering & bulk send
+  // Fetch provider_documents only for bulk "send next doc" workflow (not for row rendering).
+  // Row-level doc counts come from the v_provider_list view.
   const { data: allProviderDocs } = useQuery({
     queryKey: ["provider-docs-for-list"],
     queryFn: async () => {
@@ -188,8 +170,9 @@ export default function Providers() {
     },
   });
 
-  const providerDocSummary = useMemo(() => {
-    const map: Record<string, { total: number; signed: number; nextDoc: { id: string; templateId: string; name: string; signingOrder: number } | null }> = {};
+  // Compute "next doc to send" per provider (used only by the bulk-send flow).
+  const nextDocByProvider = useMemo(() => {
+    const map: Record<string, { id: string; templateId: string; name: string; signingOrder: number } | null> = {};
     if (!allProviderDocs) return map;
     const grouped: Record<string, typeof allProviderDocs> = {};
     allProviderDocs.forEach(d => {
@@ -198,8 +181,7 @@ export default function Providers() {
     });
     for (const [pid, docs] of Object.entries(grouped)) {
       const sorted = [...docs].sort((a, b) => (a.signing_order ?? 0) - (b.signing_order ?? 0));
-      const signedCount = sorted.filter(d => d.status === "signed").length;
-      let nextDoc: typeof map[string]["nextDoc"] = null;
+      let nextDoc: typeof map[string] = null;
       for (const d of sorted) {
         if (d.status === "signed") continue;
         const prevAll = sorted.filter(p => (p.signing_order ?? 0) < (d.signing_order ?? 0));
@@ -209,26 +191,10 @@ export default function Providers() {
         }
         break;
       }
-      map[pid] = { total: sorted.length, signed: signedCount, nextDoc };
+      map[pid] = nextDoc;
     }
     return map;
   }, [allProviderDocs]);
-
-  const { data: contracts } = useQuery({
-    queryKey: ["contracts-for-providers"],
-    queryFn: async () => {
-      const { data } = await supabase.from("contracts").select("id, provider_id, status");
-      return data ?? [];
-    },
-  });
-
-  const { data: activities } = useQuery({
-    queryKey: ["activities-for-providers"],
-    queryFn: async () => {
-      const { data } = await supabase.from("activities").select("provider_id, created_at").order("created_at", { ascending: false });
-      return data ?? [];
-    },
-  });
 
   const { data: salesReps } = useQuery({
     queryKey: ["sales-reps"],
@@ -241,25 +207,13 @@ export default function Providers() {
     },
   });
 
-  const contractCounts = useMemo(() => {
-    const m: Record<string, number> = {};
-    contracts?.forEach(c => { if (c.status === "active") m[c.provider_id] = (m[c.provider_id] || 0) + 1; });
-    return m;
-  }, [contracts]);
-
-  const lastActivityDates = useMemo(() => {
-    const m: Record<string, string> = {};
-    activities?.forEach(a => { if (a.provider_id && !m[a.provider_id]) m[a.provider_id] = a.created_at; });
-    return m;
-  }, [activities]);
-
   const uniqueStates = useMemo(() => [...new Set((providers ?? []).map(p => p.state).filter(Boolean))].sort(), [providers]);
   const uniqueTypes = useMemo(() => [...new Set((providers ?? []).map(p => p.provider_type).filter(Boolean))].sort(), [providers]);
 
   const createProvider = useMutation({
     mutationFn: async () => {
       const addressParts = [form.address_line1, form.city, form.state, form.zip_code].filter(Boolean);
-      const geo = addressParts.length >= 2 ? await geocodeAddress(addressParts.join(", ")) : null;
+      const geo = addressParts.length >= 2 ? await backendGeocode(addressParts.join(", ")).catch(() => null) : null;
       const { error } = await supabase.from("providers").insert({
         business_name: form.business_name, contact_name: form.contact_name || null, contact_email: form.contact_email || null, contact_phone: form.contact_phone || null,
         address_line1: form.address_line1 || null, address_line2: form.address_line2 || null, city: form.city || null, state: form.state || null, zip_code: form.zip_code || null,
@@ -268,52 +222,67 @@ export default function Providers() {
       });
       if (error) throw error;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["providers-list"] }); setOpen(false); setForm({ ...emptyForm }); toast.success("Provider created successfully"); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["v-provider-list"] }); setOpen(false); setForm({ ...emptyForm }); toast.success("Provider created successfully"); },
     onError: (e: any) => toast.error(e.message),
   });
 
   const bulkAssignRep = useMutation({
     mutationFn: async (repId: string) => { const { error } = await supabase.from("providers").update({ assigned_sales_rep: repId }).in("id", Array.from(selectedIds)); if (error) throw error; },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["providers-list"] }); setSelectedIds(new Set()); toast.success("Sales rep assigned"); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["v-provider-list"] }); setSelectedIds(new Set()); toast.success("Sales rep assigned"); },
   });
 
   const bulkChangeStatus = useMutation({
     mutationFn: async (status: string) => { const { error } = await supabase.from("providers").update({ status: status as any }).in("id", Array.from(selectedIds)); if (error) throw error; },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["providers-list"] }); setSelectedIds(new Set()); toast.success("Status updated"); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["v-provider-list"] }); setSelectedIds(new Set()); toast.success("Status updated"); },
   });
 
   const eligibleForBulkSend = useMemo(() => {
     const ids = Array.from(selectedIds);
     return ids.map(id => {
-      const summary = providerDocSummary[id];
+      const nextDoc = nextDocByProvider[id];
       const prov = providers?.find(p => p.id === id);
-      if (!summary?.nextDoc || !prov) return null;
-      const doc = allProviderDocs?.find(d => d.id === summary.nextDoc!.id);
+      if (!nextDoc || !prov) return null;
+      const doc = allProviderDocs?.find(d => d.id === nextDoc.id);
       if (doc?.status !== "pending") return null;
-      return { providerId: id, providerName: prov.business_name, doc: summary.nextDoc };
+      return { providerId: id, providerName: prov.business_name, doc: nextDoc };
     }).filter(Boolean) as { providerId: string; providerName: string; doc: { id: string; templateId: string; name: string; signingOrder: number } }[];
-  }, [selectedIds, providerDocSummary, providers, allProviderDocs]);
+  }, [selectedIds, nextDocByProvider, providers, allProviderDocs]);
 
   const bulkSendMutation = useMutation({
     mutationFn: async () => {
-      for (const item of eligibleForBulkSend) {
-        const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + 7);
-        const { data: sigReq, error } = await supabase.from("signature_requests").insert({
-          contract_id: item.doc.templateId, provider_id: item.providerId, requested_by: user!.id, expires_at: expiresAt.toISOString(), provider_document_id: item.doc.id,
-        } as any).select().single();
-        if (error) continue;
-        await supabase.from("provider_documents").update({ status: "sent", sent_at: new Date().toISOString(), signature_request_id: sigReq.id }).eq("id", item.doc.id);
-        const { data: provider } = await supabase.from("providers").select("contact_email").eq("id", item.providerId).single();
-        if (provider?.contact_email) {
-          const { data: prof } = await supabase.from("profiles").select("id").eq("email", provider.contact_email).maybeSingle();
-          if (prof) {
-            await supabase.from("notifications").insert({ user_id: prof.id, title: `Action Required: Sign "${item.doc.name}"`, message: `Please review and sign your document.`, type: "warning", link: `/sign/${sigReq.id}` });
-          }
+      if (eligibleForBulkSend.length === 0) return;
+      // Group providers by the templateId they will receive next. When all eligible providers
+      // share the same next-template, this is a single RPC; otherwise we issue one RPC per template.
+      const uniqueTemplates = new Set(eligibleForBulkSend.map(x => x.doc.templateId));
+      if (uniqueTemplates.size === 1) {
+        const templateId = eligibleForBulkSend[0].doc.templateId;
+        const providerIds = eligibleForBulkSend.map(x => x.providerId);
+        const { data, error } = await supabase.rpc("rpc_provider_bulk_send_document" as any, {
+          p_provider_ids: providerIds,
+          p_template_id: templateId,
+        });
+        if (error) throw error;
+        const rows = (data as any[]) ?? [];
+        const errorRows = rows.filter(r => r.status !== "sent");
+        if (errorRows.length) throw new Error(`Sent ${rows.length - errorRows.length} of ${rows.length}, ${errorRows.length} failed`);
+      } else {
+        const byTemplate = new Map<string, string[]>();
+        for (const item of eligibleForBulkSend) {
+          const ids = byTemplate.get(item.doc.templateId) ?? [];
+          ids.push(item.providerId);
+          byTemplate.set(item.doc.templateId, ids);
+        }
+        for (const [tmplId, ids] of byTemplate) {
+          const { error } = await supabase.rpc("rpc_provider_bulk_send_document" as any, {
+            p_provider_ids: ids,
+            p_template_id: tmplId,
+          });
+          if (error) throw error;
         }
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["providers-list"] }); queryClient.invalidateQueries({ queryKey: ["provider-docs-for-list"] }); queryClient.invalidateQueries({ queryKey: ["signature-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["v-provider-list"] }); queryClient.invalidateQueries({ queryKey: ["provider-docs-for-list"] }); queryClient.invalidateQueries({ queryKey: ["signature-requests"] });
       setSelectedIds(new Set()); setBulkSendOpen(false); toast.success(`Sent ${eligibleForBulkSend.length} documents for signature`);
     },
     onError: (e: any) => toast.error(e.message),
@@ -338,54 +307,18 @@ export default function Providers() {
       if (!bulkTemplateId) throw new Error("Select a template");
       const tmpl = bulkTemplates?.find(t => t.id === bulkTemplateId);
       if (!tmpl?.file_url) throw new Error("Template has no file uploaded");
-      const ids = Array.from(selectedIds);
-      const now = new Date().toISOString();
-      const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + 14);
-
-      for (const pid of ids) {
-        // Create provider_document
-        const { data: provDoc } = await supabase
-          .from("provider_documents")
-          .insert({ provider_id: pid, template_id: bulkTemplateId, status: "sent", sent_at: now } as any)
-          .select("id")
-          .single();
-        if (!provDoc) continue;
-
-        // Create signature request
-        const { data: sigReq } = await supabase
-          .from("signature_requests")
-          .insert({
-            contract_id: bulkTemplateId, provider_id: pid, requested_by: user!.id,
-            expires_at: expiresAt.toISOString(), provider_document_id: provDoc.id,
-          } as any)
-          .select()
-          .single();
-        if (!sigReq) continue;
-
-        await supabase.from("provider_documents").update({ signature_request_id: sigReq.id }).eq("id", provDoc.id);
-
-        // Notify
-        const { data: provider } = await supabase.from("providers").select("contact_email").eq("id", pid).single();
-        if (provider?.contact_email) {
-          const { data: prof } = await supabase.from("profiles").select("id").eq("email", provider.contact_email).maybeSingle();
-          if (prof) {
-            await supabase.from("notifications").insert({
-              user_id: prof.id, title: `Action Required: Sign "${tmpl.name}"`,
-              message: `You have a new document to review and sign: ${tmpl.name}.`,
-              type: "warning", link: `/sign/${sigReq.id}`,
-            });
-          }
-        }
-
-        await supabase.from("activities").insert({
-          provider_id: pid, user_id: user!.id,
-          activity_type: "status_change" as any,
-          description: `Document sent for signature: "${tmpl.name}" (bulk send)`,
-        });
-      }
+      const providerIds = Array.from(selectedIds);
+      const { data, error } = await supabase.rpc("rpc_provider_bulk_send_document" as any, {
+        p_provider_ids: providerIds,
+        p_template_id: bulkTemplateId,
+      });
+      if (error) throw error;
+      const rows = (data as any[]) ?? [];
+      const errorRows = rows.filter(r => r.status !== "sent");
+      if (errorRows.length) throw new Error(`Sent ${rows.length - errorRows.length} of ${rows.length}, ${errorRows.length} failed`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["providers-list"] });
+      queryClient.invalidateQueries({ queryKey: ["v-provider-list"] });
       queryClient.invalidateQueries({ queryKey: ["provider-docs-for-list"] });
       setSelectedIds(new Set()); setBulkTemplateOpen(false); setBulkTemplateId("");
       toast.success(`Sent to ${selectedIds.size} providers`);
@@ -393,41 +326,33 @@ export default function Providers() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  // Apply client-side filters
+  // Apply client-side filters against columns on the v_provider_list view.
   const filtered = useMemo(() => {
     let list = providers ?? [];
     if (filterDocStatus !== "all") {
       list = list.filter(p => {
-        const summary = providerDocSummary[p.id];
+        const total = Number(p.total_docs ?? 0);
+        const signed = Number(p.signed_docs ?? 0);
         switch (filterDocStatus) {
           case "no_package": return !p.service_package_id;
-          case "pending": return summary && summary.signed === 0 && summary.total > 0;
-          case "partial": return summary && summary.signed > 0 && summary.signed < summary.total;
-          case "fully_signed": return summary && summary.total > 0 && summary.signed === summary.total;
+          case "pending": return signed === 0 && total > 0;
+          case "partial": return signed > 0 && signed < total;
+          case "fully_signed": return total > 0 && signed === total;
           default: return true;
         }
       });
     }
     if (filterTier !== "all") {
-      list = list.filter(p => {
-        const sub = subByProvider[p.id];
-        return sub && (sub.membership_tiers as any)?.short_code === filterTier;
-      });
+      list = list.filter(p => p.tier_code === filterTier);
     }
     if (filterCategory !== "all") {
-      list = list.filter(p => {
-        const sub = subByProvider[p.id];
-        return sub && (sub.specialty_categories as any)?.short_code === filterCategory;
-      });
+      list = list.filter(p => p.category_code === filterCategory);
     }
     if (filterBillingStatus !== "all") {
-      list = list.filter(p => {
-        const sub = subByProvider[p.id];
-        return sub && sub.status === filterBillingStatus;
-      });
+      list = list.filter(p => p.billing_status === filterBillingStatus);
     }
     return list;
-  }, [providers, filterDocStatus, providerDocSummary, filterTier, filterCategory, filterBillingStatus, subByProvider]);
+  }, [providers, filterDocStatus, filterTier, filterCategory, filterBillingStatus]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -447,10 +372,9 @@ export default function Providers() {
   const exportCSV = () => {
     const headers = ["Business Name", "Contact Name", "Contact Email", "City", "State", "Status", "Type", "Assigned Rep", "Tier", "Category", "Monthly Fee", "Billing Status"];
     const rows = filtered.map(p => {
-      const sub = subByProvider[p.id];
-      return [p.business_name, p.contact_name || "", p.contact_email || "", p.city || "", p.state || "", p.status, p.provider_type || "", p.profiles?.full_name || "",
-        sub ? ((sub.membership_tiers as any)?.name ?? "") : "", sub ? ((sub.specialty_categories as any)?.name ?? "") : "",
-        sub ? `$${Number(sub.monthly_amount).toFixed(2)}` : "", sub ? sub.status : ""];
+      return [p.business_name, p.contact_name || "", p.contact_email || "", p.city || "", p.state || "", p.status, p.provider_type || "", p.rep_name || "",
+        p.tier_name || "", p.category_name || "",
+        p.monthly_amount != null ? `$${Number(p.monthly_amount).toFixed(2)}` : "", p.billing_status || ""];
     });
     const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "providers.csv"; a.click(); URL.revokeObjectURL(url);
@@ -654,7 +578,7 @@ export default function Providers() {
             const ids = Array.from(selectedIds);
             const selected = filtered.filter(p => ids.includes(p.id));
             const headers = ["Business Name", "Contact Name", "Contact Email", "Contact Phone", "City", "State", "Status", "Type", "Assigned Rep"];
-            const rows = selected.map(p => [p.business_name, p.contact_name || "", p.contact_email || "", p.contact_phone || "", p.city || "", p.state || "", p.status, p.provider_type || "", p.profiles?.full_name || ""]);
+            const rows = selected.map(p => [p.business_name, p.contact_name || "", p.contact_email || "", p.contact_phone || "", p.city || "", p.state || "", p.status, p.provider_type || "", p.rep_name || ""]);
             const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
             const blob = new Blob([csv], { type: "text/csv" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "selected-providers.csv"; a.click(); URL.revokeObjectURL(url);
             toast.success(`Exported ${selected.length} providers`);
@@ -690,11 +614,11 @@ export default function Providers() {
               <TableRow><TableCell colSpan={15} className="p-0"><TableSkeleton rows={10} cols={15} /></TableCell></TableRow>
             ) : filtered.length > 0 ? (
               filtered.map(p => {
-                const docSummary = providerDocSummary[p.id];
-                const sub = subByProvider[p.id];
-                const tierCode = sub ? (sub.membership_tiers as any)?.short_code : null;
-                const tierName = sub ? (sub.membership_tiers as any)?.name : null;
-                const catName = sub ? (sub.specialty_categories as any)?.short_code : null;
+                const totalDocs = Number(p.total_docs ?? 0);
+                const signedDocs = Number(p.signed_docs ?? 0);
+                const tierCode = p.tier_code as string | null;
+                const tierName = p.tier_name as string | null;
+                const catName = p.category_code as string | null;
                 return (
                   <TableRow key={p.id} className="cursor-pointer group transition-colors" onClick={() => navigate(`/providers/${p.id}`)}>
                     <TableCell onClick={e => e.stopPropagation()}><Checkbox checked={selectedIds.has(p.id)} onCheckedChange={() => toggleSelect(p.id)} /></TableCell>
@@ -729,23 +653,23 @@ export default function Providers() {
                     )}
                     {columns.monthlyFee && (
                       <TableCell className="text-right text-sm font-medium">
-                        {sub ? `$${Number(sub.monthly_amount).toLocaleString()}` : <span className="text-muted-foreground font-normal">—</span>}
+                        {p.monthly_amount != null ? `$${Number(p.monthly_amount).toLocaleString()}` : <span className="text-muted-foreground font-normal">—</span>}
                       </TableCell>
                     )}
                     {columns.billingStatus && (
                       <TableCell>
-                        {sub ? (
-                          <Badge variant="secondary" className={`text-[11px] capitalize ${BILLING_STATUS_COLORS[sub.status] || ""}`}>{sub.status.replace(/_/g, " ")}</Badge>
+                        {p.billing_status ? (
+                          <Badge variant="secondary" className={`text-[11px] capitalize ${BILLING_STATUS_COLORS[p.billing_status] || ""}`}>{String(p.billing_status).replace(/_/g, " ")}</Badge>
                         ) : <span className="text-muted-foreground text-xs">—</span>}
                       </TableCell>
                     )}
-                    {columns.health && <TableCell><HealthScoreBadge score={(p as any).health_score} /></TableCell>}
+                    {columns.health && <TableCell><HealthScoreBadge score={p.health_score} /></TableCell>}
                     {columns.documents && (
                       <TableCell>
-                        {docSummary && docSummary.total > 0 ? (
+                        {totalDocs > 0 ? (
                           <div className="flex items-center gap-2">
-                            <Progress value={(docSummary.signed / docSummary.total) * 100} className="h-1.5 w-12" />
-                            <span className="text-xs text-muted-foreground">{docSummary.signed}/{docSummary.total}</span>
+                            <Progress value={(signedDocs / totalDocs) * 100} className="h-1.5 w-12" />
+                            <span className="text-xs text-muted-foreground">{signedDocs}/{totalDocs}</span>
                           </div>
                         ) : <span className="text-muted-foreground text-xs">—</span>}
                       </TableCell>
@@ -753,18 +677,18 @@ export default function Providers() {
                     {columns.type && <TableCell className="text-sm text-muted-foreground">{p.provider_type || "—"}</TableCell>}
                     {columns.package && (
                       <TableCell>
-                        {(p as any).service_packages?.name
-                          ? <span className="text-xs font-medium bg-muted px-2 py-0.5 rounded-md">{(p as any).service_packages.name}</span>
+                        {p.package_name
+                          ? <span className="text-xs font-medium bg-muted px-2 py-0.5 rounded-md">{p.package_name}</span>
                           : <span className="text-muted-foreground text-xs">—</span>}
                       </TableCell>
                     )}
                     {columns.rep && (
-                      <TableCell className="text-sm text-muted-foreground">{p.profiles?.full_name || "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{p.rep_name || "—"}</TableCell>
                     )}
-                    {columns.contracts && <TableCell className="text-center text-sm">{contractCounts[p.id] || 0}</TableCell>}
+                    {columns.contracts && <TableCell className="text-center text-sm">{Number(p.active_contract_count ?? 0)}</TableCell>}
                     {columns.lastActivity && (
                       <TableCell className="text-xs text-muted-foreground">
-                        {lastActivityDates[p.id] ? new Date(lastActivityDates[p.id]).toLocaleDateString() : "—"}
+                        {p.last_activity_at ? new Date(p.last_activity_at).toLocaleDateString() : "—"}
                       </TableCell>
                     )}
                   </TableRow>
@@ -851,38 +775,38 @@ export default function Providers() {
         title="Import Providers"
         fields={PROVIDER_IMPORT_FIELDS}
         onImport={async (rows) => {
-          let imported = 0, skipped = 0;
-          for (const row of rows) {
-            try {
-              const addressParts = [row.address_line1, row.city, row.state, row.zip_code].filter(Boolean);
-              let lat: number | null = null, lng: number | null = null;
-              if (addressParts.length >= 2) {
-                const geo = await geocodeAddress(addressParts.join(", "));
-                if (geo) { lat = geo.lat; lng = geo.lng; }
-              }
-              const { error } = await supabase.from("providers").insert({
-                business_name: row.business_name,
-                contact_name: row.contact_name || null,
-                contact_email: row.contact_email || null,
-                contact_phone: row.contact_phone || null,
-                address_line1: row.address_line1 || null,
-                city: row.city || null,
-                state: row.state || null,
-                zip_code: row.zip_code || null,
-                provider_type: row.provider_type || null,
-                website: row.website || null,
-                npi_number: row.npi_number || null,
-                tax_id: row.tax_id || null,
-                notes: row.notes || null,
-                status: "prospect" as any,
-                latitude: lat,
-                longitude: lng,
-                assigned_sales_rep: user!.id,
-              });
-              if (error) { skipped++; } else { imported++; }
-            } catch { skipped++; }
+          if (rows.length === 0) {
+            return { imported: 0, skipped: 0 };
           }
-          queryClient.invalidateQueries({ queryKey: ["providers-list"] });
+          // Re-serialize rows to CSV for the FastAPI importer (which expects a File).
+          const headers = Object.keys(rows[0] ?? {});
+          const csv = [
+            headers.join(","),
+            ...rows.map(r => headers.map(h => `"${String(r[h] ?? "").replace(/"/g, '""')}"`).join(",")),
+          ].join("\n");
+          const file = new File([csv], "providers.csv", { type: "text/csv" });
+
+          const job = await importProvidersCsv(file);
+          // Poll for completion (every 2s, up to 2 min).
+          let imported = 0, skipped = 0;
+          let done = false;
+          for (let i = 0; i < 60; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            const status = await getJobStatus(job.job_id);
+            if (status.status === "completed") {
+              imported = Number((status.result as any)?.imported ?? 0);
+              skipped = Number((status.result as any)?.skipped ?? 0);
+              done = true;
+              break;
+            }
+            if (status.status === "failed") {
+              throw new Error(status.error_message ?? "Import failed");
+            }
+          }
+          if (!done) {
+            throw new Error("Import is still running. Check the Jobs page for progress.");
+          }
+          queryClient.invalidateQueries({ queryKey: ["v-provider-list"] });
           return { imported, skipped };
         }}
       />
@@ -920,7 +844,7 @@ export default function Providers() {
             const { error, count } = await query;
             if (error || count === 0) notFound++; else updated++;
           }
-          queryClient.invalidateQueries({ queryKey: ["providers-list"] });
+          queryClient.invalidateQueries({ queryKey: ["v-provider-list"] });
           return { updated, notFound };
         }}
       />

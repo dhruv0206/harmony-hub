@@ -1,0 +1,11 @@
+business_name,contact_name,contact_email,contact_phone,address_line1,city,state,zip_code,provider_type,npi_number,website,notes
+Seattle Sports Medicine,Dr. James Park,james@seattlesports.test,206-555-0201,500 Pine St,Seattle,WA,98101,Sports Medicine,1234567890,https://seattlesportsmed.test,Top regional sports clinic
+Miami Pain Management,Dr. Maria Garcia,maria@miamipain.test,305-555-0202,1500 Biscayne Blvd,Miami,FL,33132,Pain Management,1234567891,,Multi-location group
+Phoenix Neurology Associates,Dr. Robert Kim,robert@phxneuro.test,602-555-0203,2020 Central Ave,Phoenix,AZ,85004,Neurology,1234567892,https://phxneuro.test,Headache specialist
+Portland Rehab Center,Dr. Lisa Wong,lisa@portlandrehab.test,503-555-0204,900 SW 5th Ave,Portland,OR,97204,Rehabilitation,1234567893,,Focus on back injuries
+Nashville Spine Institute,Dr. David Brown,david@nashvillespine.test,615-555-0205,1717 West End Ave,Nashville,TN,37203,Spine Surgery,1234567894,https://nashvillespine.test,Referral-based
+San Diego Orthopedics,Dr. Angela Martinez,angela@sdortho.test,619-555-0206,600 Broadway,San Diego,CA,92101,Orthopedic,1234567895,,Bilingual services
+Dallas Joint Replacement Center,Dr. Kevin Taylor,kevin@dallasjoint.test,214-555-0207,3500 Oak Lawn Ave,Dallas,TX,75219,Orthopedic Surgeon,1234567896,https://dallasjoint.test,Hip & knee specialists
+Chicago Sports Clinic,Dr. Jennifer Adams,jennifer@chicagosports.test,312-555-0208,233 N Michigan Ave,Chicago,IL,60601,Sports Medicine,1234567897,,Youth athletes focus
+Atlanta Physical Medicine,Dr. Marcus Williams,marcus@atlpm.test,404-555-0209,1100 Peachtree St,Atlanta,GA,30309,Physical Medicine,1234567898,https://atlpm.test,
+Minneapolis Chiropractic Wellness,Dr. Rachel Thompson,rachel@mplschiro.test,612-555-0210,800 Nicollet Mall,Minneapolis,MN,55402,Chiropractor,1234567899,,Accepts all insurance

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { downloadCSV } from "@/lib/export-utils";
 import { CSVImportWizard, FieldMapping } from "@/components/import/CSVImportWizard";
 import { BulkUpdateWizard } from "@/components/import/BulkUpdateWizard";
+import { geocodeAddress, importLawFirmsCsv, getJobStatus } from "@/lib/backend-api";
 
 const statusColors: Record<string, string> = {
   prospect: "bg-muted text-muted-foreground",
@@ -105,9 +106,9 @@ export default function LawFirms() {
 
   // Queries
   const { data, isLoading } = useQuery({
-    queryKey: ["law-firms", page, pageSize, searchQuery, statusFilter, stateFilter, sizeFilter, practiceFilter, repFilter, sortField, sortDir],
+    queryKey: ["v-law-firm-list", page, pageSize, searchQuery, statusFilter, stateFilter, sizeFilter, practiceFilter, repFilter, sortField, sortDir],
     queryFn: async () => {
-      let query = (supabase.from("law_firms" as any).select("*, profiles:assigned_sales_rep(full_name)", { count: "exact" }) as any);
+      let query = (supabase.from("v_law_firm_list" as any).select("*", { count: "exact" }) as any);
       if (statusFilter !== "all") query = query.eq("status", statusFilter);
       if (stateFilter !== "all") query = query.eq("state", stateFilter);
       if (sizeFilter !== "all") query = query.eq("firm_size", sizeFilter);
@@ -135,51 +136,6 @@ export default function LawFirms() {
     staleTime: 60000,
   });
 
-  // Subscriptions for monthly fee column
-  const { data: subscriptions } = useQuery({
-    queryKey: ["law-firm-subscriptions-list"],
-    queryFn: async () => {
-      const { data } = await (supabase.from("law_firm_subscriptions" as any).select("law_firm_id, monthly_amount, status") as any);
-      return (data ?? []) as any[];
-    },
-  });
-
-  const subByFirm = useMemo(() => {
-    const map: Record<string, any> = {};
-    (subscriptions ?? []).forEach((s: any) => { if (!map[s.law_firm_id] || s.status === "active") map[s.law_firm_id] = s; });
-    return map;
-  }, [subscriptions]);
-
-  // Activities for last activity column
-  const { data: lastActivities } = useQuery({
-    queryKey: ["law-firm-last-activities"],
-    queryFn: async () => {
-      const { data } = await (supabase.from("law_firm_activities" as any).select("law_firm_id, created_at").order("created_at", { ascending: false }) as any);
-      return (data ?? []) as any[];
-    },
-  });
-
-  const lastActivityByFirm = useMemo(() => {
-    const map: Record<string, string> = {};
-    (lastActivities ?? []).forEach((a: any) => { if (!map[a.law_firm_id]) map[a.law_firm_id] = a.created_at; });
-    return map;
-  }, [lastActivities]);
-
-  // Contracts count
-  const { data: contracts } = useQuery({
-    queryKey: ["law-firm-contracts-count"],
-    queryFn: async () => {
-      const { data } = await (supabase.from("law_firm_documents" as any).select("law_firm_id, status").in("status", ["fully_executed", "provider_signed"]) as any);
-      return (data ?? []) as any[];
-    },
-  });
-
-  const contractCountByFirm = useMemo(() => {
-    const map: Record<string, number> = {};
-    (contracts ?? []).forEach((c: any) => { map[c.law_firm_id] = (map[c.law_firm_id] || 0) + 1; });
-    return map;
-  }, [contracts]);
-
   // Sales reps
   const { data: salesReps } = useQuery({
     queryKey: ["sales-reps"],
@@ -192,6 +148,18 @@ export default function LawFirms() {
   // Mutations
   const createFirm = useMutation({
     mutationFn: async () => {
+      const addressParts = [form.address_line1, form.city, form.state, form.zip_code].filter(Boolean);
+      let lat: number | null = null;
+      let lng: number | null = null;
+      if (addressParts.length >= 2) {
+        try {
+          const geo = await geocodeAddress(addressParts.join(", "));
+          lat = geo.lat;
+          lng = geo.lng;
+        } catch {
+          // geocoding is best-effort; continue without coordinates
+        }
+      }
       const payload: any = {
         firm_name: form.firm_name,
         dba_name: form.dba_name || null,
@@ -210,12 +178,14 @@ export default function LawFirms() {
         source: form.source || null,
         assigned_sales_rep: form.assigned_sales_rep || user?.id || null,
         notes: form.notes || null,
+        latitude: lat,
+        longitude: lng,
       };
       const { error } = await (supabase.from("law_firms" as any).insert(payload) as any);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["law-firms"] });
+      queryClient.invalidateQueries({ queryKey: ["v-law-firm-list"] });
       queryClient.invalidateQueries({ queryKey: ["law-firm-stats"] });
       setAddOpen(false);
       setForm({ ...emptyForm });
@@ -230,7 +200,7 @@ export default function LawFirms() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["law-firms"] });
+      queryClient.invalidateQueries({ queryKey: ["v-law-firm-list"] });
       setSelectedIds(new Set());
       toast.success("Sales rep assigned");
     },
@@ -242,7 +212,7 @@ export default function LawFirms() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["law-firms"] });
+      queryClient.invalidateQueries({ queryKey: ["v-law-firm-list"] });
       queryClient.invalidateQueries({ queryKey: ["law-firm-stats"] });
       setSelectedIds(new Set());
       toast.success("Status updated");
@@ -288,15 +258,12 @@ export default function LawFirms() {
 
   const exportCsv = () => {
     const headers = ["Firm Name", "City", "State", "Firm Size", "Status", "Assigned Rep", "Monthly Fee", "Practice Areas"];
-    const rows = firms.map((f: any) => {
-      const sub = subByFirm[f.id];
-      return [
-        f.firm_name, f.city || "", f.state || "", f.firm_size?.replace(/_/g, " ") || "",
-        f.status?.replace(/_/g, " "), f.profiles?.full_name || "",
-        sub ? `$${Number(sub.monthly_amount).toFixed(2)}` : "",
-        (f.practice_areas || []).map((p: string) => p.replace(/_/g, " ")).join("; "),
-      ];
-    });
+    const rows = firms.map((f: any) => [
+      f.firm_name, f.city || "", f.state || "", f.firm_size?.replace(/_/g, " ") || "",
+      f.status?.replace(/_/g, " "), f.rep_name || "",
+      f.monthly_amount != null ? `$${Number(f.monthly_amount).toFixed(2)}` : "",
+      (f.practice_areas || []).map((p: string) => p.replace(/_/g, " ")).join("; "),
+    ]);
     downloadCSV("law-firms.csv", headers, rows);
     toast.success("CSV exported");
   };
@@ -506,10 +473,11 @@ export default function LawFirms() {
             const ids = Array.from(selectedIds);
             const selected = firms.filter((f: any) => ids.includes(f.id));
             const headers = ["Firm Name", "Contact Name", "Contact Email", "City", "State", "Status", "Firm Size", "Practice Areas", "Rep", "Monthly Fee"];
-            const rows = selected.map((f: any) => {
-              const sub = subByFirm[f.id];
-              return [f.firm_name, f.contact_name || "", f.contact_email || "", f.city || "", f.state || "", f.status || "", f.firm_size?.replace(/_/g, " ") || "", (f.practice_areas || []).join("; "), f.profiles?.full_name || "", sub ? `$${Number(sub.monthly_amount).toFixed(0)}` : ""];
-            });
+            const rows = selected.map((f: any) => [
+              f.firm_name, f.contact_name || "", f.contact_email || "", f.city || "", f.state || "",
+              f.status || "", f.firm_size?.replace(/_/g, " ") || "", (f.practice_areas || []).join("; "),
+              f.rep_name || "", f.monthly_amount != null ? `$${Number(f.monthly_amount).toFixed(0)}` : "",
+            ]);
             downloadCSV("selected-law-firms.csv", headers, rows);
             toast.success(`Exported ${selected.length} law firms`);
           }}><Download className="h-3 w-3 mr-1" />Export Selected</Button>
@@ -539,9 +507,7 @@ export default function LawFirms() {
               <TableRow><TableCell colSpan={10} className="p-0"><TableSkeleton rows={10} cols={10} /></TableCell></TableRow>
             ) : firms.length > 0 ? (
               firms.map((firm: any) => {
-                const sub = subByFirm[firm.id];
-                const lastAct = lastActivityByFirm[firm.id];
-                const contractCount = contractCountByFirm[firm.id] || 0;
+                const signedDocs = Number(firm.signed_docs ?? 0);
                 return (
                   <TableRow key={firm.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/law-firms/${firm.id}`)}>
                     <TableCell onClick={e => e.stopPropagation()}>
@@ -568,10 +534,10 @@ export default function LawFirms() {
                     <TableCell>
                       <Badge className={statusColors[firm.status] || ""} variant="secondary">{firm.status?.replace(/_/g, " ")}</Badge>
                     </TableCell>
-                    <TableCell className="text-sm">{firm.profiles?.full_name || "—"}</TableCell>
-                    <TableCell className="text-sm text-center">{contractCount || "—"}</TableCell>
-                    <TableCell className="text-sm text-right">{sub ? `$${Number(sub.monthly_amount).toFixed(0)}` : "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{lastAct ? timeAgo(lastAct) : "—"}</TableCell>
+                    <TableCell className="text-sm">{firm.rep_name || "—"}</TableCell>
+                    <TableCell className="text-sm text-center">{signedDocs || "—"}</TableCell>
+                    <TableCell className="text-sm text-right">{firm.monthly_amount != null ? `$${Number(firm.monthly_amount).toFixed(0)}` : "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{firm.last_activity_at ? timeAgo(firm.last_activity_at) : "—"}</TableCell>
                   </TableRow>
                 );
               })
@@ -604,32 +570,36 @@ export default function LawFirms() {
         title="Import Law Firms"
         fields={LAW_FIRM_IMPORT_FIELDS}
         onImport={async (rows) => {
-          let imported = 0, skipped = 0;
-          for (const row of rows) {
-            try {
-              const practiceAreas = row.practice_areas ? row.practice_areas.split(/[;,]/).map(s => s.trim().replace(/\s+/g, "_").toLowerCase()).filter(Boolean) : null;
-              const { error } = await (supabase.from("law_firms" as any).insert({
-                firm_name: row.firm_name,
-                contact_name: row.contact_name || null,
-                contact_email: row.contact_email || null,
-                contact_phone: row.contact_phone || null,
-                address_line1: row.address_line1 || null,
-                city: row.city || null,
-                state: row.state || null,
-                zip_code: row.zip_code || null,
-                website: row.website || null,
-                firm_size: row.firm_size || null,
-                practice_areas: practiceAreas,
-                notes: row.notes || null,
-                status: "prospect",
-                assigned_sales_rep: user?.id || null,
-              }) as any);
-              if (error) { skipped++; } else { imported++; }
-            } catch { skipped++; }
+          if (rows.length === 0) return { imported: 0, skipped: 0 };
+          // Rebuild mapped rows into a CSV file for the FastAPI bulk-import endpoint.
+          const headers = Object.keys(rows[0]);
+          const escape = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+          const csv = [headers.join(","), ...rows.map(r => headers.map(h => escape(r[h] ?? "")).join(","))].join("\n");
+          const file = new File([csv], "law-firms-import.csv", { type: "text/csv" });
+          try {
+            const job = await importLawFirmsCsv(file);
+            // Poll until terminal status (capped at ~2 minutes).
+            let status = job.status;
+            let result: any = null;
+            let errors: Array<{ row_index?: number; reason: string }> | undefined;
+            let total = job.total_items ?? rows.length;
+            for (let i = 0; i < 60 && status !== "completed" && status !== "failed"; i++) {
+              await new Promise(r => setTimeout(r, 2000));
+              const js = await getJobStatus(job.job_id);
+              status = js.status;
+              result = js.result ?? result;
+              errors = js.errors ?? errors;
+              if (js.total_items != null) total = js.total_items;
+            }
+            const imported = Number((result as any)?.imported ?? 0);
+            const skipped = Number((result as any)?.skipped ?? (errors?.length ?? (status === "failed" ? total : 0)));
+            queryClient.invalidateQueries({ queryKey: ["v-law-firm-list"] });
+            queryClient.invalidateQueries({ queryKey: ["law-firm-stats"] });
+            return { imported, skipped };
+          } catch (e: any) {
+            toast.error(e?.message || "Import failed");
+            return { imported: 0, skipped: rows.length };
           }
-          queryClient.invalidateQueries({ queryKey: ["law-firms"] });
-          queryClient.invalidateQueries({ queryKey: ["law-firm-stats"] });
-          return { imported, skipped };
         }}
       />
 
@@ -664,7 +634,7 @@ export default function LawFirms() {
             const { error } = await query;
             if (error) notFound++; else updated++;
           }
-          queryClient.invalidateQueries({ queryKey: ["law-firms"] });
+          queryClient.invalidateQueries({ queryKey: ["v-law-firm-list"] });
           return { updated, notFound };
         }}
       />

@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Search, Loader2, Sparkles, Plus, Phone, Globe, MapPin, AlertTriangle, History, RefreshCw, Megaphone, UserCheck, FileText, ArrowUpDown, X, Ban } from "lucide-react";
 import { US_STATES } from "@/lib/us-states";
 import { format } from "date-fns";
+import { searchLeads, BackendError } from "@/lib/backend-api";
 
 const DEFAULT_CATEGORIES = [
   "Chiropractor", "Orthopedic Surgeon", "Pain Management", "Physical Therapy",
@@ -98,7 +99,7 @@ export default function LeadFinder() {
         .from("ai_config")
         .select("settings")
         .eq("feature_name", "lead_finder_categories")
-        .single();
+        .maybeSingle();
       return (data?.settings as any)?.categories as string[] | undefined;
     },
   });
@@ -166,32 +167,13 @@ export default function LeadFinder() {
     return { isDuplicate: false };
   };
 
-  const runEnrichment = useCallback(async (businessResults: LeadResult[]) => {
-    // Mark all as enriching
-    setResults(prev => prev.map(r => ({ ...r, isEnriching: true })));
-    try {
-      const { data, error } = await supabase.functions.invoke("lead-finder", {
-        body: {
-          action: "enrich",
-          leads: businessResults.map(r => ({
-            business_name: r.business_name, city: r.city, state: r.state,
-            website: r.website, phone: r.phone, category: r.category,
-          })),
-        },
-      });
-      if (!error && data?.enriched) {
-        setResults(prev => prev.map(r => {
-          const enriched = data.enriched.find((e: any) => e.business_name === r.business_name);
-          return enriched
-            ? { ...r, ai_score: enriched.ai_score, ai_summary: enriched.ai_summary, business_size: enriched.business_size, isEnriching: false }
-            : { ...r, isEnriching: false };
-        }));
-      } else {
-        setResults(prev => prev.map(r => ({ ...r, isEnriching: false })));
-      }
-    } catch {
-      setResults(prev => prev.map(r => ({ ...r, isEnriching: false })));
-    }
+  // AI enrichment (ai_score, ai_summary, business_size) is temporarily disabled
+  // because the old `lead-finder` Edge Function isn't deployed and we haven't
+  // built a FastAPI equivalent yet. Google Places already gives us phone +
+  // website + rating from the main search, so the core data is complete.
+  // To restore AI scoring, add POST /api/v1/lead-finder/enrich on the backend.
+  const runEnrichment = useCallback(async (_businessResults: LeadResult[]) => {
+    setResults(prev => prev.map(r => ({ ...r, isEnriching: false })));
   }, []);
 
   const handleSearch = async () => {
@@ -224,24 +206,29 @@ export default function LeadFinder() {
         started_at: new Date().toISOString(),
       }).select().single();
 
-      const { data, error } = await supabase.functions.invoke("lead-finder", {
-        body: {
-          category: searchCat,
-          city: locationTab === "city" ? city : undefined,
-          state,
-          zip: locationTab === "zip" ? zip : undefined,
-          radius: locationTab === "zip" ? parseInt(radius) : undefined,
-          resultCount: parseInt(resultCount),
-          excludeChains,
-        },
+      const data = await searchLeads({
+        category: searchCat,
+        city: locationTab === "city" ? city || undefined : undefined,
+        state: state || undefined,
+        zip: locationTab === "zip" ? zip || undefined : undefined,
+        result_count: parseInt(resultCount),
+        exclude_chains: excludeChains,
+        enrich: true,
       });
 
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-
-      const businesses = (data.businesses || []).map((b: LeadResult) => {
-        const dup = checkDuplicate(b);
-        return { ...b, isDuplicate: dup.isDuplicate, duplicateMatch: dup.match, duplicateLink: dup.link };
+      const businesses: LeadResult[] = (data.leads || []).map(l => {
+        const mapped: LeadResult = {
+          business_name: l.name,
+          phone: l.phone || undefined,
+          address: l.address || undefined,
+          city: l.city || undefined,
+          state: l.state || undefined,
+          zip_code: l.zip || undefined,
+          website: l.website || undefined,
+          category: searchCat,
+        };
+        const dup = checkDuplicate(mapped);
+        return { ...mapped, isDuplicate: dup.isDuplicate, duplicateMatch: dup.match, duplicateLink: dup.link };
       });
 
       setResults(businesses);
@@ -262,7 +249,8 @@ export default function LeadFinder() {
         runEnrichment(businesses);
       }
     } catch (e: any) {
-      toast({ title: "Search failed", description: e.message, variant: "destructive" });
+      const description = e instanceof BackendError ? e.message : (e?.message ?? String(e));
+      toast({ title: "Search failed", description, variant: "destructive" });
     } finally {
       setIsSearching(false);
       setSearchingLabel("");

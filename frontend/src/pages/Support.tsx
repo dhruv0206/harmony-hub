@@ -61,7 +61,7 @@ export default function Support() {
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
-      const { data: profile } = await supabase.from("profiles").select("email").eq("id", user.id).single();
+      const { data: profile } = await supabase.from("profiles").select("email").eq("id", user.id).maybeSingle();
       if (!profile?.email) return null;
       const { data: providers } = await supabase.from("providers").select("*").eq("contact_email", profile.email).limit(1);
       return providers?.[0] || null;
@@ -84,8 +84,9 @@ export default function Support() {
     mutationFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
-      const { data: profile } = await supabase.from("profiles").select("email").eq("id", user.id).single();
-      const { data: providers } = await supabase.from("providers").select("id").eq("contact_email", profile?.email).limit(1);
+      const { data: profile } = await supabase.from("profiles").select("email").eq("id", user.id).maybeSingle();
+      if (!profile?.email) throw new Error("Your profile has no email set");
+      const { data: providers } = await supabase.from("providers").select("id").eq("contact_email", profile.email).limit(1);
       if (!providers?.length) throw new Error("No provider record found for your account");
       const { error } = await supabase.from("support_tickets").insert({
         provider_id: providers[0].id,

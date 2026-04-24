@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, Edit, RefreshCw, FileText, Plus, Phone, Mail, MapPin, Calendar, DollarSign, Clock, User, AlertTriangle, TrendingUp } from "lucide-react";
+import ContractForm from "@/components/contracts/ContractForm";
 import { ServicePackageCard } from "@/components/providers/ServicePackageCard";
 import { HealthScoreCard } from "@/components/providers/HealthScoreCard";
 import { ProviderDocumentsTab } from "@/components/providers/ProviderDocumentsTab";
@@ -22,6 +23,7 @@ import ProviderBillingTab from "@/components/providers/ProviderBillingTab";
 import { toast } from "sonner";
 import AuditLogTable from "@/components/audit/AuditLogTable";
 import { Constants } from "@/integrations/supabase/types";
+import { refreshProviderHealthScore, BackendError } from "@/lib/backend-api";
 
 const statusColors: Record<string, string> = {
   prospect: "bg-muted text-muted-foreground",
@@ -56,6 +58,7 @@ export default function ProviderDetail() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
+  const [contractFormOpen, setContractFormOpen] = useState(false);
   const [newStatus, setNewStatus] = useState("");
   const [activityForm, setActivityForm] = useState({ type: "note" as string, description: "" });
   const [editForm, setEditForm] = useState<any>(null);
@@ -63,7 +66,7 @@ export default function ProviderDetail() {
   const { data: provider, isLoading } = useQuery({
     queryKey: ["provider", id],
     queryFn: async () => {
-      const { data, error } = await supabase.from("providers").select("*, profiles(full_name, email)").eq("id", id!).single();
+      const { data, error } = await supabase.from("providers").select("*, profiles(full_name, email)").eq("id", id!).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -172,6 +175,22 @@ export default function ProviderDetail() {
     },
   });
 
+  const refreshHealth = useMutation({
+    mutationFn: () => refreshProviderHealthScore(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["provider", id] });
+      queryClient.invalidateQueries({ queryKey: ["provider-health", id] });
+      toast.success("Health score refreshed");
+    },
+    onError: (e: any) => {
+      if (e instanceof BackendError && e.code === "FUNCTION_NOT_DEPLOYED") {
+        toast.error("Health-score service not deployed");
+      } else {
+        toast.error(e.message);
+      }
+    },
+  });
+
   const updateProvider = useMutation({
     mutationFn: async () => {
       if (!editForm) return;
@@ -240,7 +259,23 @@ export default function ProviderDetail() {
               <Button onClick={() => updateStatus.mutate(newStatus)} disabled={!newStatus || newStatus === provider.status}>Update Status</Button>
             </DialogContent>
           </Dialog>
-          <Button size="sm"><FileText className="mr-2 h-4 w-4" />Create Contract</Button>
+          <Dialog open={contractFormOpen} onOpenChange={setContractFormOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm"><FileText className="mr-2 h-4 w-4" />Create Contract</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader><DialogTitle>Create Contract</DialogTitle></DialogHeader>
+              <ContractForm
+                defaultProviderId={id!}
+                onSuccess={() => {
+                  setContractFormOpen(false);
+                  queryClient.invalidateQueries({ queryKey: ["provider-contracts", id] });
+                  queryClient.invalidateQueries({ queryKey: ["v-contract-list"] });
+                  toast.success("Contract created");
+                }}
+              />
+            </DialogContent>
+          </Dialog>
           <Dialog open={activityOpen} onOpenChange={setActivityOpen}>
             <DialogTrigger asChild><Button size="sm" variant="outline"><Plus className="mr-2 h-4 w-4" />Log Activity</Button></DialogTrigger>
             <DialogContent>
@@ -315,7 +350,20 @@ export default function ProviderDetail() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <HealthScoreCard providerId={id!} currentScore={(provider as any).health_score} />
+            <div className="space-y-2">
+              <div className="flex justify-end">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => refreshHealth.mutate()}
+                  disabled={refreshHealth.isPending}
+                >
+                  <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${refreshHealth.isPending ? "animate-spin" : ""}`} />
+                  Refresh Health Score
+                </Button>
+              </div>
+              <HealthScoreCard providerId={id!} currentScore={(provider as any).health_score} />
+            </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">

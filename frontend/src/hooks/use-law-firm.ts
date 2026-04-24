@@ -12,13 +12,13 @@ export function useLawFirm() {
         .from("law_firm_profiles")
         .select("law_firm_id")
         .eq("user_id", user!.id)
-        .single();
+        .maybeSingle();
       if (!link) return null;
       const { data } = await supabase
         .from("law_firms")
         .select("*, profiles!law_firms_assigned_sales_rep_fkey(full_name, email, phone)")
         .eq("id", link.law_firm_id)
-        .single();
+        .maybeSingle();
       return data;
     },
     enabled: !!user && role === "law_firm",

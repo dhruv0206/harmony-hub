@@ -18,7 +18,7 @@ export default function ProviderTraining() {
     queryFn: async () => {
       const { data: profile } = await supabase.from("profiles").select("email").eq("id", user!.id).single();
       if (!profile?.email) return null;
-      const { data } = await supabase.from("providers").select("id").eq("contact_email", profile.email).single();
+      const { data } = await supabase.from("providers").select("id").eq("contact_email", profile.email).maybeSingle();
       return data;
     },
   });

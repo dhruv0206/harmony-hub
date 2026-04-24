@@ -87,7 +87,7 @@ export default function ContractDetail() {
         .from("contracts")
         .select("*, providers(business_name, contact_name, contact_email, contact_phone, id), profiles(full_name)")
         .eq("id", id!)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -165,7 +165,7 @@ export default function ContractDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["contract", id] });
-      queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["v-contract-list"] });
       toast.success("Status updated");
     },
     onError: (e: any) => toast.error(e.message),

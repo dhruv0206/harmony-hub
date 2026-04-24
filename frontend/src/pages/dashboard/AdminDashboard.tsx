@@ -29,7 +29,7 @@ function useAdminStats() {
         supabase.from("providers").select("id, status, created_at"),
         supabase.from("law_firms").select("id, status, created_at"),
         supabase.rpc("get_total_mrr"),
-        supabase.from("onboarding_workflows").select("id, participant_type", { count: "exact" }).in("status", ["in_progress" as any, "pending" as any]),
+        supabase.from("onboarding_workflows").select("id, participant_type", { count: "exact" }).in("status", ["in_progress" as any, "not_started" as any]),
         supabase.from("provider_documents").select("id", { count: "exact" }).in("status", ["sent", "pending"]),
         supabase.from("support_tickets").select("id", { count: "exact" }).in("status", ["open", "in_progress"]),
         supabase.from("sales_pipeline").select("id, estimated_value, stage"),
@@ -106,7 +106,7 @@ function useNeedsAttention() {
       const fiveDaysAgo = subDays(new Date(), 5).toISOString();
       const { data: stalled } = await supabase.from("onboarding_workflows")
         .select("id, updated_at, providers(business_name), law_firms(firm_name)")
-        .in("status", ["in_progress" as any, "pending" as any])
+        .in("status", ["in_progress" as any, "not_started" as any])
         .lt("updated_at", fiveDaysAgo).limit(5);
       for (const ob of stalled ?? []) {
         const days = differenceInDays(new Date(), new Date(ob.updated_at));

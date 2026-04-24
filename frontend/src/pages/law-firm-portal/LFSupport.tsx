@@ -42,8 +42,7 @@ export default function LFSupport() {
   const { data: tickets, isLoading } = useQuery({
     queryKey: ["lf-support-tickets", lawFirm?.id],
     queryFn: async () => {
-      // Support tickets use provider_id - for law firms we query by law firm id
-      const { data } = await supabase.from("support_tickets").select("*").eq("provider_id", lawFirm!.id).order("created_at", { ascending: false });
+      const { data } = await supabase.from("support_tickets").select("*").eq("law_firm_id", lawFirm!.id).order("created_at", { ascending: false });
       return data ?? [];
     },
     enabled: !!lawFirm?.id,
@@ -53,12 +52,12 @@ export default function LFSupport() {
     mutationFn: async () => {
       if (!lawFirm) throw new Error("No law firm record");
       const { error } = await supabase.from("support_tickets").insert({
-        provider_id: lawFirm.id,
+        law_firm_id: lawFirm.id,
         subject: form.subject,
         description: form.description,
         category: form.category as any,
         priority: form.priority as any,
-      });
+      } as any);
       if (error) throw error;
     },
     onSuccess: () => {

@@ -33,7 +33,7 @@ export default function ProviderOnboardingDashboard() {
     queryFn: async () => {
       const { data: prof } = await supabase.from("profiles").select("email").eq("id", user!.id).single();
       if (!prof?.email) return null;
-      const { data } = await supabase.from("providers").select("id, business_name").eq("contact_email", prof.email).single();
+      const { data } = await supabase.from("providers").select("id, business_name").eq("contact_email", prof.email).maybeSingle();
       return data;
     },
     enabled: !!user,

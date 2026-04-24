@@ -97,7 +97,7 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["v-contract-list"] });
       queryClient.invalidateQueries({ queryKey: ["contract"] });
       toast.success(contractId ? "Contract updated" : "Contract created");
       onSuccess();
