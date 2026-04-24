@@ -15,19 +15,24 @@ import type { Database } from "@/integrations/supabase/types";
 type ContractType = Database["public"]["Enums"]["contract_type"];
 type ContractStatus = Database["public"]["Enums"]["contract_status"];
 
+type EntityKind = "provider" | "law_firm";
+
 interface ContractFormProps {
   contractId?: string;
   defaultProviderId?: string;
+  defaultLawFirmId?: string;
   // Invoked on save success. Receives the (created-or-updated) contract id so
   // callers can navigate to /contracts/:id if desired.
   onSuccess: (createdContractId?: string) => void;
 }
 
-export default function ContractForm({ contractId, defaultProviderId, onSuccess }: ContractFormProps) {
+export default function ContractForm({ contractId, defaultProviderId, defaultLawFirmId, onSuccess }: ContractFormProps) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
+  const [entityKind, setEntityKind] = useState<EntityKind>(defaultLawFirmId ? "law_firm" : "provider");
   const [providerId, setProviderId] = useState(defaultProviderId || "");
+  const [lawFirmId, setLawFirmId] = useState(defaultLawFirmId || "");
   const [contractType, setContractType] = useState<ContractType>("standard");
   const [status, setStatus] = useState<ContractStatus>("draft");
   const [dealValue, setDealValue] = useState("");
@@ -36,6 +41,7 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
   const [renewalDate, setRenewalDate] = useState("");
   const [termsSummary, setTermsSummary] = useState("");
   const [providerSearch, setProviderSearch] = useState("");
+  const [lawFirmSearch, setLawFirmSearch] = useState("");
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -44,6 +50,15 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
     queryKey: ["providers_list"],
     queryFn: async () => {
       const { data, error } = await supabase.from("providers").select("id, business_name").order("business_name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: lawFirms } = useQuery({
+    queryKey: ["law_firms_list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("law_firms").select("id, firm_name").order("firm_name");
       if (error) throw error;
       return data;
     },
@@ -61,7 +76,16 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
 
   useEffect(() => {
     if (existing) {
-      setProviderId(existing.provider_id);
+      const anyExisting = existing as any;
+      if (anyExisting.law_firm_id) {
+        setEntityKind("law_firm");
+        setLawFirmId(anyExisting.law_firm_id);
+        setProviderId("");
+      } else {
+        setEntityKind("provider");
+        setProviderId(existing.provider_id || "");
+        setLawFirmId("");
+      }
       setContractType(existing.contract_type);
       setStatus(existing.status);
       setDealValue(String(existing.deal_value || ""));
@@ -120,8 +144,9 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
           setUploading(false);
         }
       }
-      const payload = {
-        provider_id: providerId,
+      const payload: any = {
+        provider_id: entityKind === "provider" ? providerId : null,
+        law_firm_id: entityKind === "law_firm" ? lawFirmId : null,
         contract_type: contractType,
         status,
         deal_value: dealValue ? Number(dealValue) : null,
@@ -154,23 +179,70 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
   const filteredProviders = providers?.filter((p) =>
     p.business_name.toLowerCase().includes(providerSearch.toLowerCase())
   ) || [];
+  const filteredLawFirms = lawFirms?.filter((f) =>
+    f.firm_name.toLowerCase().includes(lawFirmSearch.toLowerCase())
+  ) || [];
 
   return (
     <div className="space-y-4">
-      <div>
-        <Label>Provider</Label>
-        <Select value={providerId} onValueChange={setProviderId}>
-          <SelectTrigger><SelectValue placeholder="Select provider" /></SelectTrigger>
-          <SelectContent>
-            <div className="p-2">
-              <Input placeholder="Search providers..." value={providerSearch} onChange={(e) => setProviderSearch(e.target.value)} className="mb-2" />
-            </div>
-            {filteredProviders.map((p) => (
-              <SelectItem key={p.id} value={p.id}>{p.business_name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {/* Entity type toggle — hidden when editing (can't switch after creation) */}
+      {!contractId && (
+        <div>
+          <Label>Contract For</Label>
+          <div className="flex gap-2 mt-1">
+            <Button
+              type="button"
+              variant={entityKind === "provider" ? "default" : "outline"}
+              size="sm"
+              className="flex-1"
+              onClick={() => { setEntityKind("provider"); setLawFirmId(""); }}
+            >
+              Provider
+            </Button>
+            <Button
+              type="button"
+              variant={entityKind === "law_firm" ? "default" : "outline"}
+              size="sm"
+              className="flex-1"
+              onClick={() => { setEntityKind("law_firm"); setProviderId(""); }}
+            >
+              Law Firm
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {entityKind === "provider" ? (
+        <div>
+          <Label>Provider</Label>
+          <Select value={providerId} onValueChange={setProviderId}>
+            <SelectTrigger><SelectValue placeholder="Select provider" /></SelectTrigger>
+            <SelectContent>
+              <div className="p-2">
+                <Input placeholder="Search providers..." value={providerSearch} onChange={(e) => setProviderSearch(e.target.value)} className="mb-2" />
+              </div>
+              {filteredProviders.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.business_name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : (
+        <div>
+          <Label>Law Firm</Label>
+          <Select value={lawFirmId} onValueChange={setLawFirmId}>
+            <SelectTrigger><SelectValue placeholder="Select law firm" /></SelectTrigger>
+            <SelectContent>
+              <div className="p-2">
+                <Input placeholder="Search law firms..." value={lawFirmSearch} onChange={(e) => setLawFirmSearch(e.target.value)} className="mb-2" />
+              </div>
+              {filteredLawFirms.map((f) => (
+                <SelectItem key={f.id} value={f.id}>{f.firm_name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -257,7 +329,11 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
         </div>
       </div>
 
-      <Button onClick={() => mutation.mutate()} disabled={!providerId || mutation.isPending || uploading} className="w-full">
+      <Button
+        onClick={() => mutation.mutate()}
+        disabled={(entityKind === "provider" ? !providerId : !lawFirmId) || mutation.isPending || uploading}
+        className="w-full"
+      >
         {uploading ? "Uploading PDF..." : mutation.isPending ? "Saving..." : contractId ? "Update Contract" : "Create Contract"}
       </Button>
     </div>

@@ -113,7 +113,7 @@ export default function ContractDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("contracts")
-        .select("*, providers(business_name, contact_name, contact_email, contact_phone, id), profiles(full_name)")
+        .select("*, providers(business_name, contact_name, contact_email, contact_phone, id), law_firms(firm_name, contact_name, contact_email, contact_phone, id), profiles(full_name)")
         .eq("id", id!)
         .maybeSingle();
       if (error) throw error;
@@ -122,6 +122,8 @@ export default function ContractDetail() {
   });
 
   const providerId = (contract?.providers as any)?.id || contract?.provider_id;
+  const lawFirmId = (contract as any)?.law_firms?.id || (contract as any)?.law_firm_id;
+  const isLawFirmContract = !!lawFirmId;
 
   // Resolve a signed URL for the original contract PDF (stored in private `contracts` bucket)
   const { data: contractPdfDisplay } = useQuery({
@@ -304,7 +306,8 @@ export default function ContractDetail() {
           </Button>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">{(contract.providers as any)?.business_name || "Unknown"}</h1>
+              <h1 className="text-2xl font-bold">{(contract.providers as any)?.business_name || (contract as any).law_firms?.firm_name || "Unknown"}</h1>
+              {isLawFirmContract && <Badge variant="outline">Law Firm</Badge>}
               <Badge className={`capitalize ${statusColors[contract.status]}`}>{contract.status.replace(/_/g, " ")}</Badge>
               {tierName && <Badge variant="outline">{tierName}</Badge>}
             </div>
@@ -700,7 +703,7 @@ export default function ContractDetail() {
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Edit Contract</DialogTitle></DialogHeader>
-            <ContractForm contractId={contract.id} defaultProviderId={contract.provider_id} onSuccess={() => setEditOpen(false)} />
+            <ContractForm contractId={contract.id} defaultProviderId={contract.provider_id || undefined} defaultLawFirmId={(contract as any).law_firm_id || undefined} onSuccess={() => setEditOpen(false)} />
           </DialogContent>
         </Dialog>
       )}

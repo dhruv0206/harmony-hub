@@ -16,22 +16,14 @@ import {
   Loader2, Copy, ChevronDown, ChevronUp, AlertTriangle,
 } from "lucide-react";
 
-const AI_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-features`;
-
+// Uses supabase.functions.invoke so the caller's session JWT is passed to the
+// Edge Function (anon key alone returns 401 when the function verifies JWT).
 async function callAI(action: string, params: Record<string, any>) {
-  const resp = await fetch(AI_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-    },
-    body: JSON.stringify({ action, ...params }),
+  const { data, error } = await supabase.functions.invoke("ai-features", {
+    body: { action, ...params },
   });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: "AI error" }));
-    throw new Error(err.error || `Error ${resp.status}`);
-  }
-  return resp.json();
+  if (error) throw new Error(error.message || "AI error");
+  return data;
 }
 
 // ── Section Skeleton ──
@@ -339,19 +331,20 @@ function SentimentTrend() {
         for (let i = 5; i >= 0; i--) {
           const d = new Date();
           d.setMonth(d.getMonth() - i);
-          const key = d.toISOString().slice(0, 7);
           const label = d.toLocaleString("default", { month: "short", year: "2-digit" });
           monthBuckets[label] = [];
 
-          const start = `${key}-01`;
-          const end = i === 0 ? new Date().toISOString() : `${key}-31`;
+          const start = new Date(Date.UTC(d.getFullYear(), d.getMonth(), 1)).toISOString();
+          const end = i === 0
+            ? new Date().toISOString()
+            : new Date(Date.UTC(d.getFullYear(), d.getMonth() + 1, 1)).toISOString();
 
           const { data: msgs } = await supabase
             .from("ticket_messages")
             .select("message")
             .eq("is_ai_response", false)
             .gte("created_at", start)
-            .lte("created_at", end)
+            .lt("created_at", end)
             .limit(30);
 
           monthBuckets[label] = (msgs || []).map((m) => m.message);

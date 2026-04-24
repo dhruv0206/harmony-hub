@@ -37,13 +37,23 @@ export default function DocumentPipelineKanban() {
     },
   });
 
+  const { data: contractSigReqs } = useQuery({
+    queryKey: ["doc-pipeline-sigreqs"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("signature_requests")
+        .select("id, status, sent_at, viewed_at, signed_at, created_at, contract_id, provider_id, law_firm_id, contracts(contract_type, providers(business_name))")
+        .not("contract_id", "is", null)
+        .not("status", "in", "(voided,declined)")
+        .order("created_at", { ascending: false });
+      return data ?? [];
+    },
+  });
+
   const cards = useMemo<DocCard[]>(() => {
-    if (!providerDocs) return [];
     const now = Date.now();
-    return providerDocs.map(d => {
-      // Map status: provider_documents uses pending/sent but we also check viewed_at
+    const fromProviderDocs: DocCard[] = (providerDocs ?? []).map(d => {
       let status = d.status || "pending";
-      // If status is "sent" but viewed_at is set, treat as "viewed"
       if (status === "sent" && d.viewed_at) status = "viewed";
 
       let referenceDate = d.created_at;
@@ -65,7 +75,50 @@ export default function DocumentPipelineKanban() {
         signedAt: d.signed_at,
       };
     });
-  }, [providerDocs]);
+
+    const fromSigReqs: DocCard[] = (contractSigReqs ?? []).map((r: any) => {
+      let status: string;
+      switch (r.status) {
+        case "pending":
+          status = r.viewed_at ? "viewed" : "sent";
+          break;
+        case "viewed":
+          status = "viewed";
+          break;
+        case "signed":
+        case "fully_executed":
+          status = "signed";
+          break;
+        default:
+          status = "sent";
+      }
+
+      let referenceDate = r.created_at;
+      if (status === "sent" && r.sent_at) referenceDate = r.sent_at;
+      if (status === "viewed" && r.viewed_at) referenceDate = r.viewed_at;
+      if (status === "signed" && r.signed_at) referenceDate = r.signed_at;
+      const daysInStatus = Math.ceil((now - new Date(referenceDate || r.created_at).getTime()) / (1000 * 60 * 60 * 24));
+
+      const entityName =
+        r.contracts?.providers?.business_name ||
+        "Unknown";
+      const contractType = r.contracts?.contract_type || "standard";
+
+      return {
+        id: r.id,
+        providerName: entityName,
+        docName: `${contractType.charAt(0).toUpperCase() + contractType.slice(1)} Contract`,
+        packageName: "",
+        status,
+        daysInStatus,
+        sentAt: r.sent_at,
+        viewedAt: r.viewed_at,
+        signedAt: r.signed_at,
+      };
+    });
+
+    return [...fromProviderDocs, ...fromSigReqs];
+  }, [providerDocs, contractSigReqs]);
 
   const columnCards = useMemo(() => {
     const map: Record<string, DocCard[]> = { pending: [], sent: [], viewed: [], signed: [] };

@@ -121,7 +121,7 @@ export function ServicePackageCard({ providerId, currentPackageId }: { providerI
   const { data: templates } = useQuery({
     queryKey: ["document-templates-active"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("document_templates").select("id, name, short_code, document_type, file_url, signing_instructions").eq("is_active", true);
+      const { data, error } = await supabase.from("document_templates").select("id, name, short_code, document_type, file_url, signing_instructions").eq("is_active", true).eq("participant_type", "provider");
       if (error) throw error;
       return data as DocTemplate[];
     },

@@ -117,7 +117,7 @@ export function LawFirmServicePackageCard({ lawFirmId, currentPackageId }: { law
   const { data: templates } = useQuery({
     queryKey: ["lf-document-templates-active"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("document_templates").select("id, name, short_code, document_type").eq("is_active", true);
+      const { data, error } = await supabase.from("document_templates").select("id, name, short_code, document_type").eq("is_active", true).eq("participant_type", "law_firm");
       if (error) throw error;
       return data as DocTemplate[];
     },

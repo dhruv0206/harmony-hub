@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 import AuditLogTable from "@/components/audit/AuditLogTable";
 import { LawFirmServicePackageCard } from "@/components/law-firms/LawFirmServicePackageCard";
+import ContractForm from "@/components/contracts/ContractForm";
 
 const statusColors: Record<string, string> = {
   prospect: "bg-muted text-muted-foreground",
@@ -66,6 +67,7 @@ export default function LawFirmDetail() {
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [newContact, setNewContact] = useState({ name: "", title: "", email: "", phone: "", is_primary: false, is_signer: false });
   const [reassignOpen, setReassignOpen] = useState(false);
+  const [createContractOpen, setCreateContractOpen] = useState(false);
 
   // --- Queries ---
   const { data: firm, isLoading } = useQuery({
@@ -303,6 +305,21 @@ export default function LawFirmDetail() {
           <Button variant="outline" size="sm" onClick={() => { setEditForm({ ...firm }); setEditOpen(true); }}>
             <Edit className="mr-2 h-4 w-4" />Edit
           </Button>
+          <Button size="sm" onClick={() => setCreateContractOpen(true)}>
+            <FileText className="mr-2 h-4 w-4" />Create Contract
+          </Button>
+          <Dialog open={createContractOpen} onOpenChange={setCreateContractOpen}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader><DialogTitle>Create Contract for {firm.firm_name}</DialogTitle></DialogHeader>
+              <ContractForm
+                defaultLawFirmId={firm.id}
+                onSuccess={(newId) => {
+                  setCreateContractOpen(false);
+                  if (newId) navigate(`/contracts/${newId}`);
+                }}
+              />
+            </DialogContent>
+          </Dialog>
           <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
             <DialogTrigger asChild><Button variant="outline" size="sm"><RefreshCw className="mr-2 h-4 w-4" />Change Status</Button></DialogTrigger>
             <DialogContent>

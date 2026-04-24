@@ -24,6 +24,10 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
   const [message, setMessage] = useState("");
 
   const hasDocument = !!contract?.document_url;
+  const isLawFirm = !!contract?.law_firm_id;
+  const entityName = isLawFirm ? contract?.law_firms?.firm_name : contract?.providers?.business_name;
+  const entityEmail = isLawFirm ? contract?.law_firms?.contact_email : contract?.providers?.contact_email;
+  const entityLabel = isLawFirm ? "Law Firm" : "Provider";
 
   // Resolve a viewable URL — legacy http links (seeded) pass through; storage
   // paths in the private `contracts` bucket get a 1-hour signed URL.
@@ -49,7 +53,8 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
 
       const { data: sigReq, error } = await supabase.from("signature_requests").insert({
         contract_id: contract.id,
-        provider_id: contract.provider_id,
+        provider_id: isLawFirm ? null : contract.provider_id,
+        law_firm_id: isLawFirm ? contract.law_firm_id : null,
         requested_by: user!.id,
         expires_at: expiresAt.toISOString(),
         message,
@@ -63,20 +68,22 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
         metadata: { expiration_days: expirationDays },
       });
 
-      // Notify provider
-      const { data: providerProfiles } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("email", contract.providers?.contact_email);
+      // Notify recipient (provider or law firm)
+      if (entityEmail) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("email", entityEmail);
 
-      if (providerProfiles?.[0]) {
-        await supabase.from("notifications").insert({
-          user_id: providerProfiles[0].id,
-          title: "Action Required: Sign Your Contract",
-          message: `Please review and sign your ${contract.contract_type} contract.`,
-          type: "warning",
-          link: `/sign/${sigReq.id}?token=${(sigReq as any).signer_token}`,
-        });
+        if (profiles?.[0]) {
+          await supabase.from("notifications").insert({
+            user_id: profiles[0].id,
+            title: "Action Required: Sign Your Contract",
+            message: `Please review and sign your ${contract.contract_type} contract.`,
+            type: "warning",
+            link: `/sign/${sigReq.id}?token=${(sigReq as any).signer_token}`,
+          });
+        }
       }
 
       // Update contract status
@@ -102,8 +109,8 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
               <span className="font-medium capitalize">{contract.contract_type} Contract</span>
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <div><span className="text-muted-foreground">Provider:</span> {contract.providers?.business_name}</div>
-              <div><span className="text-muted-foreground">Email:</span> {contract.providers?.contact_email}</div>
+              <div><span className="text-muted-foreground">{entityLabel}:</span> {entityName || "—"}</div>
+              <div><span className="text-muted-foreground">Email:</span> {entityEmail || "—"}</div>
               <div><span className="text-muted-foreground">Value:</span> ${Number(contract.deal_value || 0).toLocaleString()}</div>
               <div><span className="text-muted-foreground">Status:</span> <Badge className="capitalize">{contract.status}</Badge></div>
             </div>

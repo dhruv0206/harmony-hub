@@ -345,11 +345,15 @@ export default function SignaturesPage() {
                             <Button variant="ghost" size="sm" onClick={() => setAuditOpen(r.id)}><Eye className="h-3.5 w-3.5" /></Button>
                             {(r.status === "pending" || r.status === "viewed") && (
                               <>
-                                <Button variant="ghost" size="sm" title="Copy signing link" onClick={() => {
-                                  const url = `${window.location.origin}/sign/${r.id}?token=${(r as any).signer_token}`;
-                                  navigator.clipboard.writeText(url);
-                                  toast.success("Signing link copied to clipboard");
-                                }}><LinkIcon className="h-3.5 w-3.5" /></Button>
+                                <Button variant="ghost" size="sm" title="Open signing link" asChild>
+                                  <a
+                                    href={`${window.location.origin}/sign/${r.id}?token=${(r as any).signer_token}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <LinkIcon className="h-3.5 w-3.5" />
+                                  </a>
+                                </Button>
                                 <Button variant="ghost" size="sm" onClick={() => voidMutation.mutate(r.id)}><XCircle className="h-3.5 w-3.5 text-destructive" /></Button>
                               </>
                             )}

@@ -76,12 +76,13 @@ export function ProviderDocumentsTab({ providerId }: { providerId: string }) {
   });
 
   const { data: templates } = useQuery({
-    queryKey: ["active-templates-for-send"],
+    queryKey: ["active-templates-for-send", "provider"],
     queryFn: async () => {
       const { data } = await supabase
         .from("document_templates")
         .select("id, name, document_type, file_url, short_code")
         .eq("is_active", true)
+        .eq("participant_type", "provider")
         .order("name");
       return data ?? [];
     },
@@ -142,7 +143,7 @@ export function ProviderDocumentsTab({ providerId }: { providerId: string }) {
         .from("provider_documents")
         .insert({
           provider_id: providerId,
-          template_id: templateId!,
+          template_id: templateId,
           file_url: fileUrl,
           status: "sent",
           sent_at: now,
@@ -152,11 +153,11 @@ export function ProviderDocumentsTab({ providerId }: { providerId: string }) {
         .single();
       if (docErr) throw docErr;
 
-      // Create signature_request
+      // Create signature_request — this is a provider_document flow, NOT a contract flow,
+      // so contract_id stays null. The provider_document_id linkage is what ties it together.
       const { data: sigReq, error: sigErr } = await supabase
         .from("signature_requests")
         .insert({
-          contract_id: templateId || provDoc.id,
           provider_id: providerId,
           requested_by: user!.id,
           expires_at: expiresAt,

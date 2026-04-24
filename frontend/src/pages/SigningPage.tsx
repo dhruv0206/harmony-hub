@@ -106,7 +106,7 @@ export default function SigningPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("signature_requests")
-        .select("*, providers(business_name, contact_name, contact_email, city, state, address_line1, assigned_sales_rep)")
+        .select("*, providers(business_name, contact_name, contact_email, city, state, address_line1, assigned_sales_rep), law_firms(firm_name, contact_name, contact_email, city, state)")
         .eq("id", requestId!)
         .single();
       if (error) throw error;
@@ -155,7 +155,19 @@ export default function SigningPage() {
   });
 
   const template = (providerDocument as any)?.document_templates as any;
-  const provider = sigRequest?.providers as any;
+  const lawFirm = (sigRequest as any)?.law_firms as any;
+  // Shim: for law-firm-owned signing, expose the law firm under the same shape
+  // the rest of the file reads (business_name, contact_email, city, state) so the
+  // existing render paths don't need a second code branch per call site.
+  const provider = (sigRequest?.providers as any) || (lawFirm ? {
+    business_name: lawFirm.firm_name,
+    contact_name: lawFirm.contact_name,
+    contact_email: lawFirm.contact_email,
+    city: lawFirm.city,
+    state: lawFirm.state,
+    address_line1: null,
+    assigned_sales_rep: null,
+  } : null);
   const providerId = sigRequest?.provider_id;
 
   // Signing fields for this template
@@ -245,14 +257,15 @@ export default function SigningPage() {
   });
 
   const { data: remainingDocs } = useQuery({
-    queryKey: ["remaining-docs", providerId],
+    queryKey: ["remaining-docs", providerId, providerDocumentId],
     queryFn: async () => {
-      const { data } = await supabase
+      let q = supabase
         .from("provider_documents")
         .select("id, status, document_templates(name)")
         .eq("provider_id", providerId!)
-        .in("status", ["sent", "pending", "viewed"])
-        .neq("id", providerDocumentId || "");
+        .in("status", ["sent", "pending", "viewed"]);
+      if (providerDocumentId) q = q.neq("id", providerDocumentId);
+      const { data } = await q;
       return data ?? [];
     },
     enabled: !!providerId && step === "complete",
@@ -1466,24 +1479,48 @@ function SigningComplete({ requestId, remainingDocs }: { requestId: string; rema
         </CardContent>
       </Card>
 
-      {remainingDocs.length > 0 && (
-        <Card className="border-primary/20">
-          <CardContent className="p-4 flex items-center justify-between">
-            <p className="text-sm">
-              You have <strong>{remainingDocs.length}</strong> more document{remainingDocs.length !== 1 ? "s" : ""} to sign.
-            </p>
-            <Button size="sm" onClick={() => navigate("/dashboard")}>
-              Continue <ArrowRight className="h-4 w-4 ml-1.5" />
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      {(() => {
+        const role = (profile as any)?.role;
+        const returnPath = !user
+          ? null
+          : role === "provider"
+            ? "/my-documents"
+            : role === "law_firm"
+              ? "/lf/documents"
+              : "/dashboard";
+        const returnLabel = !user
+          ? "You may close this window"
+          : role === "provider" || role === "law_firm"
+            ? "Back to My Documents"
+            : "Return to Dashboard";
+        const handleReturn = () => (returnPath ? navigate(returnPath) : window.close());
+        return (
+          <>
+            {user && remainingDocs.length > 0 && (
+              <Card className="border-primary/20">
+                <CardContent className="p-4 flex items-center justify-between">
+                  <p className="text-sm">
+                    You have <strong>{remainingDocs.length}</strong> more document{remainingDocs.length !== 1 ? "s" : ""} to sign.
+                  </p>
+                  <Button size="sm" onClick={handleReturn}>
+                    Continue <ArrowRight className="h-4 w-4 ml-1.5" />
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
 
-      <div className="flex justify-center">
-        <Button variant="outline" onClick={() => navigate("/dashboard")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />Return to Dashboard
-        </Button>
-      </div>
+            <div className="flex justify-center">
+              {returnPath ? (
+                <Button variant="outline" onClick={handleReturn}>
+                  <ArrowLeft className="h-4 w-4 mr-2" />{returnLabel}
+                </Button>
+              ) : (
+                <p className="text-sm text-muted-foreground">{returnLabel}</p>
+              )}
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
