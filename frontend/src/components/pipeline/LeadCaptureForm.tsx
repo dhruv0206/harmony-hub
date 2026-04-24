@@ -1,0 +1,141 @@
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
+
+const SOURCES = ["referral", "cold_call", "inbound", "event", "other"];
+
+interface LeadCaptureFormProps {
+  onSuccess: () => void;
+}
+
+export default function LeadCaptureForm({ onSuccess }: LeadCaptureFormProps) {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  const [businessName, setBusinessName] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [estimatedValue, setEstimatedValue] = useState("");
+  const [source, setSource] = useState("inbound");
+  const [notes, setNotes] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      // 1. Create provider as prospect
+      const { data: provider, error: pErr } = await supabase
+        .from("providers")
+        .insert({
+          business_name: businessName,
+          contact_name: contactName || null,
+          contact_email: contactEmail || null,
+          contact_phone: contactPhone || null,
+          city: city || null,
+          state: state || null,
+          status: "prospect",
+          assigned_sales_rep: user?.id,
+          notes: [source ? `Source: ${source}` : "", notes].filter(Boolean).join("\n"),
+        })
+        .select()
+        .single();
+      if (pErr) throw pErr;
+
+      // 2. Add to pipeline at lead_identified
+      const { error: plErr } = await supabase.from("sales_pipeline").insert({
+        provider_id: provider.id,
+        sales_rep_id: user!.id,
+        stage: "lead_identified",
+        estimated_value: estimatedValue ? Number(estimatedValue) : null,
+        probability: 10,
+      });
+      if (plErr) throw plErr;
+
+      // 3. Log activity
+      await supabase.from("activities").insert({
+        activity_type: "note",
+        description: `New lead captured: ${businessName} (Source: ${source})`,
+        provider_id: provider.id,
+        user_id: user?.id,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pipeline"] });
+      queryClient.invalidateQueries({ queryKey: ["providers"] });
+      toast.success("Lead captured and added to pipeline");
+      onSuccess();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Business Name *</Label>
+        <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Acme Corp" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>Contact Name</Label>
+          <Input value={contactName} onChange={(e) => setContactName(e.target.value)} />
+        </div>
+        <div>
+          <Label>Contact Email</Label>
+          <Input type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>Phone</Label>
+          <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+        </div>
+        <div>
+          <Label>Estimated Value ($)</Label>
+          <Input type="number" value={estimatedValue} onChange={(e) => setEstimatedValue(e.target.value)} placeholder="0" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>City</Label>
+          <Input value={city} onChange={(e) => setCity(e.target.value)} />
+        </div>
+        <div>
+          <Label>State</Label>
+          <Input value={state} onChange={(e) => setState(e.target.value)} />
+        </div>
+      </div>
+
+      <div>
+        <Label>Lead Source</Label>
+        <Select value={source} onValueChange={setSource}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {SOURCES.map((s) => (
+              <SelectItem key={s} value={s} className="capitalize">{s.replace(/_/g, " ")}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div>
+        <Label>Notes</Label>
+        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Any additional context..." />
+      </div>
+
+      <Button onClick={() => mutation.mutate()} disabled={!businessName || mutation.isPending} className="w-full">
+        {mutation.isPending ? "Capturing..." : "Capture Lead"}
+      </Button>
+    </div>
+  );
+}

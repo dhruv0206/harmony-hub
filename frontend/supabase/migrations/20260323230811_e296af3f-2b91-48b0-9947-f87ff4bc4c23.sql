@@ -1,0 +1,1 @@
+ALTER TYPE public.workflow_step_type ADD VALUE IF NOT EXISTS 'billing_setup';

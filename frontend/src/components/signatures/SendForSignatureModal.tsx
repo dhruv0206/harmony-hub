@@ -1,0 +1,110 @@
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { FileText, Send } from "lucide-react";
+import { toast } from "sonner";
+
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  contract: any;
+}
+
+export default function SendForSignatureModal({ open, onOpenChange, contract }: Props) {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [expirationDays, setExpirationDays] = useState(7);
+  const [message, setMessage] = useState("");
+
+  const sendMutation = useMutation({
+    mutationFn: async () => {
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + expirationDays);
+
+      const { data: sigReq, error } = await supabase.from("signature_requests").insert({
+        contract_id: contract.id,
+        provider_id: contract.provider_id,
+        requested_by: user!.id,
+        expires_at: expiresAt.toISOString(),
+        message,
+      }).select().single();
+      if (error) throw error;
+
+      await supabase.from("signature_audit_log").insert({
+        signature_request_id: sigReq.id,
+        action: "request_created" as any,
+        actor_id: user!.id,
+        metadata: { expiration_days: expirationDays },
+      });
+
+      // Notify provider
+      const { data: providerProfiles } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", contract.providers?.contact_email);
+
+      if (providerProfiles?.[0]) {
+        await supabase.from("notifications").insert({
+          user_id: providerProfiles[0].id,
+          title: "Action Required: Sign Your Contract",
+          message: `Please review and sign your ${contract.contract_type} contract.`,
+          type: "warning",
+          link: `/sign/${sigReq.id}`,
+        });
+      }
+
+      // Update contract status
+      await supabase.from("contracts").update({ status: "sent" }).eq("id", contract.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["contract"] });
+      queryClient.invalidateQueries({ queryKey: ["signature-requests"] });
+      onOpenChange(false);
+      toast.success("Contract sent for e-signature!");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Send for E-Signature</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-primary" />
+              <span className="font-medium capitalize">{contract.contract_type} Contract</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div><span className="text-muted-foreground">Provider:</span> {contract.providers?.business_name}</div>
+              <div><span className="text-muted-foreground">Email:</span> {contract.providers?.contact_email}</div>
+              <div><span className="text-muted-foreground">Value:</span> ${Number(contract.deal_value || 0).toLocaleString()}</div>
+              <div><span className="text-muted-foreground">Status:</span> <Badge className="capitalize">{contract.status}</Badge></div>
+            </div>
+          </div>
+          <div>
+            <Label>Expiration (days)</Label>
+            <Input type="number" min={1} max={30} value={expirationDays} onChange={e => setExpirationDays(Number(e.target.value))} />
+            <p className="text-xs text-muted-foreground mt-1">
+              Expires: {new Date(Date.now() + expirationDays * 86400000).toLocaleDateString()}
+            </p>
+          </div>
+          <div>
+            <Label>Personal Message (optional)</Label>
+            <Textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Add a personal note to the provider..." rows={3} />
+          </div>
+          <Button className="w-full" onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending}>
+            <Send className="h-4 w-4 mr-2" />{sendMutation.isPending ? "Sending..." : "Send for Signature"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

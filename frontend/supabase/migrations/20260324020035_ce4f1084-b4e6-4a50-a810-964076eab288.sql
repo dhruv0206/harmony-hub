@@ -1,0 +1,1 @@
+ALTER TABLE public.signature_requests ADD COLUMN IF NOT EXISTS require_verification boolean NOT NULL DEFAULT true;

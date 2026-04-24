@@ -1,0 +1,1 @@
+ALTER TABLE public.providers ADD COLUMN IF NOT EXISTS tags text[] DEFAULT '{}'::text[];
