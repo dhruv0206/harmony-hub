@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FileText, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Constants } from "@/integrations/supabase/types";
 import type { Database } from "@/integrations/supabase/types";
@@ -33,6 +34,9 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
   const [renewalDate, setRenewalDate] = useState("");
   const [termsSummary, setTermsSummary] = useState("");
   const [providerSearch, setProviderSearch] = useState("");
+  const [documentUrl, setDocumentUrl] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const { data: providers } = useQuery({
     queryKey: ["providers_list"],
@@ -63,6 +67,7 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
       setEndDate(existing.end_date || "");
       setRenewalDate(existing.renewal_date || "");
       setTermsSummary(existing.terms_summary || "");
+      setDocumentUrl(existing.document_url || null);
     }
   }, [existing]);
 
@@ -75,8 +80,30 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
     }
   }, [startDate, endDate]);
 
+  const uploadPdf = async (file: File): Promise<string> => {
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `contracts/${user?.id || "anon"}/${Date.now()}-${safeName}`;
+    const { error: upErr } = await supabase.storage.from("documents").upload(path, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || "application/pdf",
+    });
+    if (upErr) throw upErr;
+    const { data: pub } = supabase.storage.from("documents").getPublicUrl(path);
+    return pub.publicUrl;
+  };
+
   const mutation = useMutation({
     mutationFn: async () => {
+      let finalDocUrl = documentUrl;
+      if (pendingFile) {
+        setUploading(true);
+        try {
+          finalDocUrl = await uploadPdf(pendingFile);
+        } finally {
+          setUploading(false);
+        }
+      }
       const payload = {
         provider_id: providerId,
         contract_type: contractType,
@@ -86,6 +113,7 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
         end_date: endDate || null,
         renewal_date: renewalDate || null,
         terms_summary: termsSummary || null,
+        document_url: finalDocUrl,
         created_by: user?.id || null,
       };
       if (contractId) {
@@ -176,8 +204,43 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
         <Textarea value={termsSummary} onChange={(e) => setTermsSummary(e.target.value)} rows={4} placeholder="Key contract terms..." />
       </div>
 
-      <Button onClick={() => mutation.mutate()} disabled={!providerId || mutation.isPending} className="w-full">
-        {mutation.isPending ? "Saving..." : contractId ? "Update Contract" : "Create Contract"}
+      <div>
+        <Label>Contract PDF</Label>
+        <div className="mt-1 border border-dashed border-border rounded-md p-4 bg-muted/30">
+          {pendingFile ? (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="h-4 w-4 text-primary flex-shrink-0" />
+                <span className="text-sm truncate">{pendingFile.name}</span>
+                <span className="text-xs text-muted-foreground flex-shrink-0">{(pendingFile.size / 1024).toFixed(0)} KB</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setPendingFile(null)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : documentUrl ? (
+            <div className="flex items-center justify-between gap-2">
+              <a href={documentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary hover:underline min-w-0">
+                <FileText className="h-4 w-4 flex-shrink-0" />
+                <span className="truncate">View current PDF</span>
+              </a>
+              <label className="text-xs text-primary hover:underline cursor-pointer flex-shrink-0">
+                Replace
+                <input type="file" accept="application/pdf" className="hidden" onChange={(e) => setPendingFile(e.target.files?.[0] || null)} />
+              </label>
+            </div>
+          ) : (
+            <label className="flex items-center justify-center gap-2 cursor-pointer py-2 text-sm text-muted-foreground hover:text-foreground">
+              <Upload className="h-4 w-4" />
+              <span>Upload contract PDF (will be sent for e-signature)</span>
+              <input type="file" accept="application/pdf" className="hidden" onChange={(e) => setPendingFile(e.target.files?.[0] || null)} />
+            </label>
+          )}
+        </div>
+      </div>
+
+      <Button onClick={() => mutation.mutate()} disabled={!providerId || mutation.isPending || uploading} className="w-full">
+        {uploading ? "Uploading PDF..." : mutation.isPending ? "Saving..." : contractId ? "Update Contract" : "Create Contract"}
       </Button>
     </div>
   );

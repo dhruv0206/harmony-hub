@@ -113,6 +113,7 @@ export default function SigningPage() {
   });
 
   const providerDocumentId = (sigRequest as any)?.provider_document_id;
+  const contractId = (sigRequest as any)?.contract_id;
   const requireVerification = (sigRequest as any)?.require_verification ?? true;
 
   const { data: providerDocument } = useQuery({
@@ -127,6 +128,22 @@ export default function SigningPage() {
       return data;
     },
     enabled: !!providerDocumentId,
+  });
+
+  // Fallback for contract-originated sig requests (no provider_document_id set):
+  // load the contract and use its document_url as the PDF source.
+  const { data: contractRow } = useQuery({
+    queryKey: ["signing-contract", contractId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("contracts")
+        .select("id, contract_type, document_url, terms_summary")
+        .eq("id", contractId)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!contractId && !providerDocumentId,
   });
 
   const template = (providerDocument as any)?.document_templates as any;
@@ -174,15 +191,23 @@ export default function SigningPage() {
   }, [providerFields]);
 
   const { data: templateFileUrl } = useQuery({
-    queryKey: ["template-file-url", template?.file_url],
+    queryKey: ["template-file-url", template?.file_url, contractRow?.document_url],
     queryFn: async () => {
+      // Contract-originated fallback: use contract.document_url directly
+      if (!template?.file_url && contractRow?.document_url) {
+        return contractRow.document_url;
+      }
       if (!template?.file_url) return null;
       if (template.file_url.startsWith("http")) return template.file_url;
       const { data } = await supabase.storage.from("document-templates").createSignedUrl(template.file_url, 3600);
       return data?.signedUrl || null;
     },
-    enabled: !!template?.file_url,
+    enabled: !!template?.file_url || !!contractRow?.document_url,
   });
+
+  // Synthetic template-like object so downstream render conditions work for contract-only flow
+  const effectiveFileType = template?.file_type || (contractRow?.document_url ? "pdf" : null);
+  const effectiveDocTitle = template?.name || (contractRow ? `${contractRow.contract_type} Contract` : "Document");
 
   const { data: repProfile } = useQuery({
     queryKey: ["rep-profile", provider?.assigned_sales_rep],
@@ -687,7 +712,7 @@ export default function SigningPage() {
   }
   const currentStepIndex = stepMap[step] ?? 0;
   const progress = ((currentStepIndex + 1) / stepsList.length) * 100;
-  const documentTitle = template?.name || "Document";
+  const documentTitle = effectiveDocTitle || "Document";
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-24">
@@ -728,7 +753,7 @@ export default function SigningPage() {
           )}
 
           {/* Document with fields */}
-          {templateFileUrl && template?.file_type === "pdf" && hasFields ? (
+          {templateFileUrl && effectiveFileType === "pdf" && hasFields ? (
             <FieldAwareDocViewer
               fileUrl={templateFileUrl}
               fields={providerFields}
@@ -750,7 +775,7 @@ export default function SigningPage() {
               numPages={numPages}
               setNumPages={setNumPages}
             />
-          ) : templateFileUrl && template?.file_type === "pdf" ? (
+          ) : templateFileUrl && effectiveFileType === "pdf" ? (
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -780,7 +805,7 @@ export default function SigningPage() {
                 </div>
               </CardContent>
             </Card>
-          ) : templateFileUrl && template?.file_type === "docx" ? (
+          ) : templateFileUrl && effectiveFileType === "docx" ? (
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-3">
@@ -792,7 +817,7 @@ export default function SigningPage() {
                 <DocxViewerInline fileUrl={templateFileUrl} />
               </CardContent>
             </Card>
-          ) : !template?.file_url ? (
+          ) : !template?.file_url && !contractRow?.document_url ? (
             <div className="bg-muted/30 border border-dashed rounded-lg p-12 text-center">
               <AlertTriangle className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <p className="font-medium">Document file not available</p>

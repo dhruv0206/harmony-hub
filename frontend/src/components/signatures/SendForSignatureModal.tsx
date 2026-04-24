@@ -23,8 +23,13 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
   const [expirationDays, setExpirationDays] = useState(7);
   const [message, setMessage] = useState("");
 
+  const hasDocument = !!contract?.document_url;
+
   const sendMutation = useMutation({
     mutationFn: async () => {
+      if (!hasDocument) {
+        throw new Error("Upload a contract PDF first — Edit contract → attach PDF.");
+      }
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + expirationDays);
 
@@ -88,6 +93,19 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
               <div><span className="text-muted-foreground">Value:</span> ${Number(contract.deal_value || 0).toLocaleString()}</div>
               <div><span className="text-muted-foreground">Status:</span> <Badge className="capitalize">{contract.status}</Badge></div>
             </div>
+            {hasDocument ? (
+              <div className="pt-2 border-t border-border/50">
+                <a href={contract.document_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary hover:underline">
+                  <FileText className="h-3.5 w-3.5" />
+                  <span>Preview attached PDF</span>
+                </a>
+              </div>
+            ) : (
+              <div className="pt-2 border-t border-border/50 text-sm text-destructive flex items-center gap-2">
+                <FileText className="h-3.5 w-3.5" />
+                No PDF attached. Edit contract → upload PDF first.
+              </div>
+            )}
           </div>
           <div>
             <Label>Expiration (days)</Label>
@@ -100,7 +118,7 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
             <Label>Personal Message (optional)</Label>
             <Textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Add a personal note to the provider..." rows={3} />
           </div>
-          <Button className="w-full" onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending}>
+          <Button className="w-full" onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending || !hasDocument}>
             <Send className="h-4 w-4 mr-2" />{sendMutation.isPending ? "Sending..." : "Send for Signature"}
           </Button>
         </div>
