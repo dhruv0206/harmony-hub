@@ -106,6 +106,16 @@ export default function LeadFinder() {
 
   const categories = finderMode === "law_firms" ? LAW_FIRM_CATEGORIES : (categoryConfig || DEFAULT_CATEGORIES);
 
+  // Classify a category string → "law_firm" | "provider". Anything matching the law-firm
+  // list (case-insensitive) is a law firm; everything else (including empty/unknown) is a provider.
+  const isLawFirmCategory = (cat?: string | null) => {
+    if (!cat) return false;
+    const c = cat.toLowerCase();
+    return LAW_FIRM_CATEGORIES.some(lf => lf.toLowerCase() === c);
+  };
+  const matchesFinderMode = (cat?: string | null) =>
+    finderMode === "law_firms" ? isLawFirmCategory(cat) : !isLawFirmCategory(cat);
+
   const { data: existingProviders } = useQuery({
     queryKey: ["providers-for-dedup"],
     queryFn: async () => {
@@ -428,9 +438,9 @@ export default function LeadFinder() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="search"><Search className="h-4 w-4 mr-1" />Search</TabsTrigger>
-            <TabsTrigger value="saved">Saved Leads ({savedLeads?.length || 0})</TabsTrigger>
+            <TabsTrigger value="saved">Saved Leads ({(savedLeads || []).filter(l => matchesFinderMode(l.category)).length})</TabsTrigger>
             <TabsTrigger value="history"><History className="h-4 w-4 mr-1" />History</TabsTrigger>
-            <TabsTrigger value="campaigns">Campaigns ({campaigns?.length || 0})</TabsTrigger>
+            <TabsTrigger value="campaigns">Campaigns ({(campaigns || []).filter(c => finderMode === "law_firms" ? (c as any).participant_type === "law_firm" : (c as any).participant_type !== "law_firm").length})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="search" className="space-y-4">
@@ -715,7 +725,7 @@ export default function LeadFinder() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {savedLeads?.map(lead => (
+                    {savedLeads?.filter(l => matchesFinderMode(l.category)).map(lead => (
                       <TableRow key={lead.id}>
                         <TableCell>
                           <p className="font-medium">{lead.business_name}</p>
@@ -741,9 +751,13 @@ export default function LeadFinder() {
                         <TableCell className="text-sm text-muted-foreground">{format(new Date(lead.created_at), "MMM d")}</TableCell>
                       </TableRow>
                     ))}
-                    {(!savedLeads || savedLeads.length === 0) && (
-                      <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No saved leads yet</TableCell></TableRow>
-                    )}
+                    {(() => {
+                      const filtered = savedLeads?.filter(l => matchesFinderMode(l.category)) ?? [];
+                      if (filtered.length === 0) {
+                        return <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No saved {finderMode === "law_firms" ? "law firm " : ""}leads yet</TableCell></TableRow>;
+                      }
+                      return null;
+                    })()}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -767,7 +781,7 @@ export default function LeadFinder() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {scrapeHistory?.map(job => (
+                    {scrapeHistory?.filter(j => matchesFinderMode(j.search_category)).map(job => (
                       <TableRow key={job.id}>
                         <TableCell className="text-sm">{format(new Date(job.created_at), "MMM d, yyyy h:mm a")}</TableCell>
                         <TableCell className="font-medium">{job.search_category}</TableCell>
@@ -786,9 +800,13 @@ export default function LeadFinder() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {(!scrapeHistory || scrapeHistory.length === 0) && (
-                      <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No search history</TableCell></TableRow>
-                    )}
+                    {(() => {
+                      const filtered = scrapeHistory?.filter(j => matchesFinderMode(j.search_category)) ?? [];
+                      if (filtered.length === 0) {
+                        return <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No {finderMode === "law_firms" ? "law firm " : ""}search history</TableCell></TableRow>;
+                      }
+                      return null;
+                    })()}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -818,7 +836,7 @@ export default function LeadFinder() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {campaigns?.map(c => (
+                    {campaigns?.filter(c => finderMode === "law_firms" ? (c as any).participant_type === "law_firm" : (c as any).participant_type !== "law_firm").map(c => (
                       <TableRow key={c.id}>
                         <TableCell className="font-medium">{c.name}</TableCell>
                         <TableCell><Badge variant="outline">{c.campaign_type?.replace("_", " ")}</Badge></TableCell>
@@ -831,9 +849,13 @@ export default function LeadFinder() {
                         <TableCell className="text-sm text-muted-foreground">{format(new Date(c.created_at), "MMM d")}</TableCell>
                       </TableRow>
                     ))}
-                    {(!campaigns || campaigns.length === 0) && (
-                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No campaigns yet</TableCell></TableRow>
-                    )}
+                    {(() => {
+                      const filtered = campaigns?.filter(c => finderMode === "law_firms" ? (c as any).participant_type === "law_firm" : (c as any).participant_type !== "law_firm") ?? [];
+                      if (filtered.length === 0) {
+                        return <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No {finderMode === "law_firms" ? "law firm " : ""}campaigns yet</TableCell></TableRow>;
+                      }
+                      return null;
+                    })()}
                   </TableBody>
                 </Table>
               </CardContent>

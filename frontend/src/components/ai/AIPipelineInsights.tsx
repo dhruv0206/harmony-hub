@@ -18,7 +18,8 @@ export function AIPipelineInsights({ deals, totalValue, weightedValue, winRate }
   const handleGenerate = () => {
     generate("pipeline_insights", {
       deals: deals.map(d => ({
-        provider: d.providers?.business_name || "Unknown",
+        name: d._displayName || d.providers?.business_name || (d.law_firms as any)?.firm_name || "Unknown",
+        type: d._type || (d.law_firm_id ? "law_firm" : "provider"),
         value: d.estimated_value,
         stage: d.stage,
         probability: d.probability,

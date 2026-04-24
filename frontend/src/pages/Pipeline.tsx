@@ -277,12 +277,15 @@ export default function Pipeline() {
           <p className="text-muted-foreground text-sm">{isMobileView ? "Tap a deal to view details" : "Drag deals between stages to update progress"}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {pipelineType === "providers" && (
-            <Dialog open={leadFormOpen} onOpenChange={setLeadFormOpen}>
-              <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" />New Lead</Button></DialogTrigger>
-              <DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Capture New Lead</DialogTitle></DialogHeader><LeadCaptureForm onSuccess={() => setLeadFormOpen(false)} /></DialogContent>
-            </Dialog>
-          )}
+          <Dialog open={leadFormOpen} onOpenChange={setLeadFormOpen}>
+            <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" />New Lead</Button></DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>{pipelineType === "law_firms" ? "Capture New Law Firm Lead" : "Capture New Lead"}</DialogTitle>
+              </DialogHeader>
+              <LeadCaptureForm participantType={pipelineType} onSuccess={() => setLeadFormOpen(false)} />
+            </DialogContent>
+          </Dialog>
           <Button variant="outline" size="sm" onClick={() => {
             const headers = [pipelineType === "providers" ? "Provider" : "Firm", "Stage", "Value", "Probability", "Close Date", "Rep"];
             const rows = normalizedDeals.map(d => [d._displayName, stageLabels[d.stage] || d.stage, String(d.estimated_value || 0), String(d.probability || 0), d.expected_close_date || "", d._repName || ""]);
@@ -330,7 +333,7 @@ export default function Pipeline() {
         </Card>
       </div>
 
-      {pipelineType === "providers" && <AIPipelineInsights deals={normalizedDeals} totalValue={totalValue} weightedValue={weightedValue} winRate={winRate} />}
+      <AIPipelineInsights deals={normalizedDeals} totalValue={totalValue} weightedValue={weightedValue} winRate={winRate} />
 
       {/* Mobile: accordion list view; Desktop: Kanban */}
       {isMobileView ? (

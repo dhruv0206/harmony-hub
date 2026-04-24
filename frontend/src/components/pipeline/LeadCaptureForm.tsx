@@ -13,11 +13,13 @@ const SOURCES = ["referral", "cold_call", "inbound", "event", "other"];
 
 interface LeadCaptureFormProps {
   onSuccess: () => void;
+  participantType?: "providers" | "law_firms";
 }
 
-export default function LeadCaptureForm({ onSuccess }: LeadCaptureFormProps) {
+export default function LeadCaptureForm({ onSuccess, participantType = "providers" }: LeadCaptureFormProps) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const isLawFirm = participantType === "law_firms";
 
   const [businessName, setBusinessName] = useState("");
   const [contactName, setContactName] = useState("");
@@ -31,46 +33,86 @@ export default function LeadCaptureForm({ onSuccess }: LeadCaptureFormProps) {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      // 1. Create provider as prospect
-      const { data: provider, error: pErr } = await supabase
-        .from("providers")
-        .insert({
-          business_name: businessName,
-          contact_name: contactName || null,
-          contact_email: contactEmail || null,
-          contact_phone: contactPhone || null,
-          city: city || null,
-          state: state || null,
-          status: "prospect",
-          assigned_sales_rep: user?.id,
-          notes: [source ? `Source: ${source}` : "", notes].filter(Boolean).join("\n"),
-        })
-        .select()
-        .single();
-      if (pErr) throw pErr;
+      const noteText = [source ? `Source: ${source}` : "", notes].filter(Boolean).join("\n");
 
-      // 2. Add to pipeline at lead_identified
-      const { error: plErr } = await supabase.from("sales_pipeline").insert({
-        provider_id: provider.id,
-        sales_rep_id: user!.id,
-        stage: "lead_identified",
-        estimated_value: estimatedValue ? Number(estimatedValue) : null,
-        probability: 10,
-      });
-      if (plErr) throw plErr;
+      if (isLawFirm) {
+        const { data: firm, error: fErr } = await supabase
+          .from("law_firms")
+          .insert({
+            firm_name: businessName,
+            contact_name: contactName || null,
+            contact_email: contactEmail || null,
+            contact_phone: contactPhone || null,
+            city: city || null,
+            state: state || null,
+            status: "prospect",
+            assigned_sales_rep: user?.id,
+            source: source || null,
+            notes: noteText,
+          })
+          .select()
+          .single();
+        if (fErr) throw fErr;
 
-      // 3. Log activity
-      await supabase.from("activities").insert({
-        activity_type: "note",
-        description: `New lead captured: ${businessName} (Source: ${source})`,
-        provider_id: provider.id,
-        user_id: user?.id,
-      });
+        const { error: plErr } = await supabase.from("law_firm_pipeline").insert({
+          law_firm_id: firm.id,
+          sales_rep_id: user!.id,
+          stage: "lead_identified",
+          estimated_value: estimatedValue ? Number(estimatedValue) : null,
+          probability: 10,
+        });
+        if (plErr) throw plErr;
+
+        await supabase.from("law_firm_activities").insert({
+          activity_type: "note",
+          description: `New law firm lead captured: ${businessName} (Source: ${source})`,
+          law_firm_id: firm.id,
+          user_id: user?.id,
+        });
+      } else {
+        const { data: provider, error: pErr } = await supabase
+          .from("providers")
+          .insert({
+            business_name: businessName,
+            contact_name: contactName || null,
+            contact_email: contactEmail || null,
+            contact_phone: contactPhone || null,
+            city: city || null,
+            state: state || null,
+            status: "prospect",
+            assigned_sales_rep: user?.id,
+            notes: noteText,
+          })
+          .select()
+          .single();
+        if (pErr) throw pErr;
+
+        const { error: plErr } = await supabase.from("sales_pipeline").insert({
+          provider_id: provider.id,
+          sales_rep_id: user!.id,
+          stage: "lead_identified",
+          estimated_value: estimatedValue ? Number(estimatedValue) : null,
+          probability: 10,
+        });
+        if (plErr) throw plErr;
+
+        await supabase.from("activities").insert({
+          activity_type: "note",
+          description: `New lead captured: ${businessName} (Source: ${source})`,
+          provider_id: provider.id,
+          user_id: user?.id,
+        });
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pipeline"] });
-      queryClient.invalidateQueries({ queryKey: ["providers"] });
-      toast.success("Lead captured and added to pipeline");
+      if (isLawFirm) {
+        queryClient.invalidateQueries({ queryKey: ["lf-pipeline"] });
+        queryClient.invalidateQueries({ queryKey: ["law-firms"] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["pipeline"] });
+        queryClient.invalidateQueries({ queryKey: ["providers"] });
+      }
+      toast.success(isLawFirm ? "Law firm lead captured and added to pipeline" : "Lead captured and added to pipeline");
       onSuccess();
     },
     onError: (e: any) => toast.error(e.message),
@@ -79,8 +121,8 @@ export default function LeadCaptureForm({ onSuccess }: LeadCaptureFormProps) {
   return (
     <div className="space-y-4">
       <div>
-        <Label>Business Name *</Label>
-        <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Acme Corp" />
+        <Label>{isLawFirm ? "Firm Name *" : "Business Name *"}</Label>
+        <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder={isLawFirm ? "Smith & Partners LLP" : "Acme Corp"} />
       </div>
 
       <div className="grid grid-cols-2 gap-4">

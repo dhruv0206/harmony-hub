@@ -24,13 +24,13 @@ function useAdminStats() {
     queryKey: ["admin-cmd-stats"],
     queryFn: async () => {
       const [
-        provRes, lfRes, mrrRes, onbRes, docRes, ticketRes, pipeRes, lfPipeRes,
+        provRes, lfRes, mrrRes, onbRes, sigReqRes, ticketRes, pipeRes, lfPipeRes,
       ] = await Promise.all([
         supabase.from("providers").select("id, status, created_at"),
         supabase.from("law_firms").select("id, status, created_at"),
         supabase.rpc("get_total_mrr"),
         supabase.from("onboarding_workflows").select("id, participant_type", { count: "exact" }).in("status", ["in_progress" as any, "not_started" as any]),
-        supabase.from("provider_documents").select("id", { count: "exact" }).in("status", ["sent", "pending"]),
+        supabase.from("signature_requests").select("id", { count: "exact", head: true }).in("status", ["pending", "viewed", "identity_verified"]),
         supabase.from("support_tickets").select("id", { count: "exact" }).in("status", ["open", "in_progress"]),
         supabase.from("sales_pipeline").select("id, estimated_value, stage"),
         supabase.from("law_firm_pipeline" as any).select("id, estimated_value, stage"),
@@ -42,9 +42,6 @@ function useAdminStats() {
       const pipeline = pipeRes.data ?? [];
       const lfPipeline = (lfPipeRes.data ?? []) as any[];
 
-      // Also get law_firm_documents pending
-      const { count: lfDocCount } = await supabase.from("law_firm_documents").select("id", { count: "exact", head: true }).in("status", ["sent", "pending"]);
-
       return {
         providers,
         lawFirms,
@@ -55,7 +52,7 @@ function useAdminStats() {
         activeOnboardings: onbRes.count ?? 0,
         providerOnboardings: (onbRes.data ?? []).filter(o => o.participant_type === "provider").length,
         lfOnboardings: (onbRes.data ?? []).filter(o => o.participant_type === "law_firm").length,
-        pendingDocs: (docRes.count ?? 0) + (lfDocCount ?? 0),
+        pendingDocs: sigReqRes.count ?? 0,
         openTickets: ticketRes.count ?? 0,
         pipelineValue: pipeline.reduce((s, p) => s + (Number(p.estimated_value) || 0), 0),
         lfPipelineValue: lfPipeline.reduce((s: number, p: any) => s + (Number(p.estimated_value) || 0), 0),
