@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -75,8 +75,8 @@ serve(async (req) => {
 
   try {
     const { category, city, state, zip, radius, action, leads, resultCount, excludeChains } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY not configured");
 
     if (action === "enrich") {
       const enrichPrompt = `You are a lead scoring and enrichment AI. Analyze these business leads and return enriched data.
@@ -91,14 +91,14 @@ Return a JSON array with objects containing: business_name, ai_score, business_s
 Leads to analyze:
 ${JSON.stringify(leads)}`;
 
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          Authorization: `Bearer ${GEMINI_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
+          model: "gemini-2.5-flash",
           messages: [
             { role: "system", content: "You are a business lead enrichment AI. Return ONLY valid JSON arrays. No markdown, no explanation." },
             { role: "user", content: enrichPrompt }
@@ -184,14 +184,14 @@ This is for the personal injury industry. For each business:
 
 Focus on finding real, currently operating local businesses.${chainInstruction}`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${GEMINI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "gemini-2.5-flash",
         messages: [
           { role: "system", content: "You are a business lead finder that ONLY returns verified, real businesses. Every business you return must have a real phone number, real street address, and be currently operating. Never fabricate or guess details. Return ONLY valid JSON." },
           { role: "user", content: searchPrompt }

@@ -1,14 +1,14 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
-const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const AI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
 const callAI = async (apiKey: string, messages: any[], tools?: any[], tool_choice?: any) => {
-  const body: any = { model: "google/gemini-3-flash-preview", messages };
+  const body: any = { model: "gemini-2.5-flash", messages };
   if (tools) { body.tools = tools; body.tool_choice = tool_choice; }
 
   const response = await fetch(AI_URL, {
@@ -35,8 +35,8 @@ serve(async (req) => {
 
   try {
     const { action, ...params } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY not configured");
 
     switch (action) {
       // ─── TONE PREVIEW ────────────────────────────────────────
@@ -50,7 +50,7 @@ serve(async (req) => {
         };
         const systemPrompt = `${tonePrompts[style] || tonePrompts.professional}\n\nYou work for a healthcare provider network management platform focused on the personal injury industry. Answer questions helpfully.${custom_persona ? `\n\nAdditional instructions: ${custom_persona}` : ''}`;
 
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: systemPrompt },
           { role: "user", content: sample_question || "What happens when my contract expires?" },
         ]);
@@ -84,7 +84,7 @@ Score factors:
 
 Return a health score, risk level, key factors, and recommended actions.`;
 
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: "You are a provider health analyst. Score providers on a 0-100 scale. Return structured data." },
           { role: "user", content: prompt },
         ], [{
@@ -129,7 +129,7 @@ Generate:
 2. A call script with talking points
 3. Suggested next steps`;
 
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: "You are a sales communication expert specializing in healthcare provider networks for the personal injury industry. Write compelling, personalized follow-up content." },
           { role: "user", content: prompt },
         ], [{
@@ -173,7 +173,7 @@ Comparable Deals: ${JSON.stringify(comparable_deals || [])}
 Analyze leverage, suggest pricing, concession strategy, and walk-away threshold.
 Consider personal injury industry specifics: lien-based billing, paper billing capabilities, patient volume potential.`;
 
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: "You are an expert deal negotiation coach for healthcare provider networks in the personal injury industry. Provide specific, actionable negotiation advice." },
           { role: "user", content: prompt },
         ], [{
@@ -214,7 +214,7 @@ ${JSON.stringify(providers)}
 
 Consider: ticket sentiment, activity recency, contract expiry, engagement patterns.`;
 
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: "You are a churn prediction expert. Analyze provider data and predict churn risk with specific retention strategies." },
           { role: "user", content: prompt },
         ], [{
@@ -256,7 +256,7 @@ Consider: ticket sentiment, activity recency, contract expiry, engagement patter
       // ─── TOPIC EXTRACTION ────────────────────────────────────
       case "extract_topics": {
         const { messages } = params;
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: "You are a text analysis expert. Extract common topics/themes from provider messages." },
           { role: "user", content: `Analyze these provider messages and extract the top 20 topics/themes. Group similar topics together. For each topic, provide a frequency count and 2-3 example paraphrased questions.\n\nMessages:\n${JSON.stringify(messages.slice(0, 200))}` },
         ], [{
@@ -295,7 +295,7 @@ Consider: ticket sentiment, activity recency, contract expiry, engagement patter
       // ─── CONFUSED SECTIONS ───────────────────────────────────
       case "confused_sections": {
         const { sessions } = params;
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: "You are a contract analysis expert. Identify which contract sections confuse providers most." },
           { role: "user", content: `Analyze these contract review sessions. Identify the top 3 most-asked-about contract sections per document, with percentage estimates and actionable insights.\n\nSessions:\n${JSON.stringify(sessions.slice(0, 100))}` },
         ], [{
@@ -333,7 +333,7 @@ Consider: ticket sentiment, activity recency, contract expiry, engagement patter
       // ─── SENTIMENT ANALYSIS ──────────────────────────────────
       case "sentiment_analysis": {
         const { messages_by_month } = params;
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: "You are a sentiment analysis expert. Score provider message sentiment." },
           { role: "user", content: `Score the average sentiment for each month's messages on a scale of -1 (very negative) to +1 (very positive). Also give a current trend assessment.\n\nMessages by month:\n${JSON.stringify(messages_by_month)}` },
         ], [{
@@ -363,7 +363,7 @@ Consider: ticket sentiment, activity recency, contract expiry, engagement patter
       // ─── MONTHLY REPORT ──────────────────────────────────────
       case "monthly_report": {
         const { topics, sentiment, effectiveness, ticket_trends, confused_sections } = params;
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: "You are a business analyst. Write a concise, insightful monthly report on AI-powered provider interactions." },
           { role: "user", content: `Generate a monthly analytics report based on this data:\n\nTop Topics: ${JSON.stringify(topics)}\nSentiment: ${JSON.stringify(sentiment)}\nAI Effectiveness: ${JSON.stringify(effectiveness)}\nTicket Trends: ${JSON.stringify(ticket_trends)}\nConfused Sections: ${JSON.stringify(confused_sections)}\n\nWrite sections: Key Trends, Provider Pain Points, Process Improvements, Month-over-Month Comparison. Use markdown formatting.` },
         ]);
@@ -403,7 +403,7 @@ Rules:
 - "FOR OFFICE USE ONLY" sections are assigned_to: "admin"
 - Most fields are assigned_to: "provider"`;
 
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: "You are a document analysis expert. Identify all form fields in legal/business documents. Return structured data only." },
           { role: "user", content: prompt },
         ], [{
@@ -472,7 +472,7 @@ Rules:
 - Most fields are assigned_to: "provider"
 - Do NOT guess positions — only identify WHAT fields exist.`;
 
-        const data = await callAI(LOVABLE_API_KEY, [
+        const data = await callAI(GEMINI_API_KEY, [
           { role: "system", content: "You are a document analysis expert. Identify all form fields in legal/business documents." },
           { role: "user", content: prompt },
         ], [{
