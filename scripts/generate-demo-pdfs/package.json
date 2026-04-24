@@ -1,0 +1,12 @@
+{
+  "name": "generate-demo-pdfs",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "generate": "node generate.mjs"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  }
+}

@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { Search, CheckCircle, Eye, XCircle, Bell, AlertTriangle, LayoutGrid, PenTool, Trash2 } from "lucide-react";
+import { Search, CheckCircle, Eye, XCircle, Bell, AlertTriangle, LayoutGrid, PenTool, Trash2, Link as LinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useRealtimeSubscription } from "@/hooks/use-realtime";
 import DocumentPipelineKanban from "@/components/signatures/DocumentPipelineKanban";
@@ -154,7 +154,7 @@ export default function SignaturesPage() {
           title: "Reminder: Document awaiting your signature",
           message: `You viewed a document but haven't signed it yet. Please complete your signature.`,
           type: "warning",
-          link: `/sign/${r.id}`,
+          link: `/sign/${r.id}?token=${(r as any).signer_token}`,
         });
         count++;
       }
@@ -344,7 +344,14 @@ export default function SignaturesPage() {
                           <div className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setAuditOpen(r.id)}><Eye className="h-3.5 w-3.5" /></Button>
                             {(r.status === "pending" || r.status === "viewed") && (
-                              <Button variant="ghost" size="sm" onClick={() => voidMutation.mutate(r.id)}><XCircle className="h-3.5 w-3.5 text-destructive" /></Button>
+                              <>
+                                <Button variant="ghost" size="sm" title="Copy signing link" onClick={() => {
+                                  const url = `${window.location.origin}/sign/${r.id}?token=${(r as any).signer_token}`;
+                                  navigator.clipboard.writeText(url);
+                                  toast.success("Signing link copied to clipboard");
+                                }}><LinkIcon className="h-3.5 w-3.5" /></Button>
+                                <Button variant="ghost" size="sm" onClick={() => voidMutation.mutate(r.id)}><XCircle className="h-3.5 w-3.5 text-destructive" /></Button>
+                              </>
                             )}
                           </div>
                         </TableCell>

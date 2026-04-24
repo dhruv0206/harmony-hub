@@ -18,7 +18,9 @@ type ContractStatus = Database["public"]["Enums"]["contract_status"];
 interface ContractFormProps {
   contractId?: string;
   defaultProviderId?: string;
-  onSuccess: () => void;
+  // Invoked on save success. Receives the (created-or-updated) contract id so
+  // callers can navigate to /contracts/:id if desired.
+  onSuccess: (createdContractId?: string) => void;
 }
 
 export default function ContractForm({ contractId, defaultProviderId, onSuccess }: ContractFormProps) {
@@ -80,18 +82,32 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
     }
   }, [startDate, endDate]);
 
+  // Uploads to private `contracts` bucket; returns the storage PATH (not a URL).
+  // Signed URLs are generated on-demand when the file is rendered/previewed.
   const uploadPdf = async (file: File): Promise<string> => {
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const path = `contracts/${user?.id || "anon"}/${Date.now()}-${safeName}`;
-    const { error: upErr } = await supabase.storage.from("documents").upload(path, file, {
+    const path = `${user?.id || "anon"}/${Date.now()}-${safeName}`;
+    const { error: upErr } = await supabase.storage.from("contracts").upload(path, file, {
       cacheControl: "3600",
       upsert: false,
       contentType: file.type || "application/pdf",
     });
     if (upErr) throw upErr;
-    const { data: pub } = supabase.storage.from("documents").getPublicUrl(path);
-    return pub.publicUrl;
+    return path;
   };
+
+  // Resolve a viewable URL from either a legacy http link (seeded demo data) or
+  // a storage path in the private `contracts` bucket → signed URL (1h).
+  const { data: displayDocUrl } = useQuery({
+    queryKey: ["contract-doc-display", documentUrl],
+    queryFn: async () => {
+      if (!documentUrl) return null;
+      if (documentUrl.startsWith("http")) return documentUrl;
+      const { data } = await supabase.storage.from("contracts").createSignedUrl(documentUrl, 3600);
+      return data?.signedUrl || null;
+    },
+    enabled: !!documentUrl,
+  });
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -119,16 +135,18 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
       if (contractId) {
         const { error } = await supabase.from("contracts").update(payload).eq("id", contractId);
         if (error) throw error;
+        return contractId;
       } else {
-        const { error } = await supabase.from("contracts").insert(payload);
+        const { data, error } = await supabase.from("contracts").insert(payload).select("id").single();
         if (error) throw error;
+        return data.id as string;
       }
     },
-    onSuccess: () => {
+    onSuccess: (newId) => {
       queryClient.invalidateQueries({ queryKey: ["v-contract-list"] });
       queryClient.invalidateQueries({ queryKey: ["contract"] });
       toast.success(contractId ? "Contract updated" : "Contract created");
-      onSuccess();
+      onSuccess(newId);
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -220,9 +238,9 @@ export default function ContractForm({ contractId, defaultProviderId, onSuccess 
             </div>
           ) : documentUrl ? (
             <div className="flex items-center justify-between gap-2">
-              <a href={documentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary hover:underline min-w-0">
+              <a href={displayDocUrl || "#"} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary hover:underline min-w-0">
                 <FileText className="h-4 w-4 flex-shrink-0" />
-                <span className="truncate">View current PDF</span>
+                <span className="truncate">{displayDocUrl ? "View current PDF" : "Loading PDF..."}</span>
               </a>
               <label className="text-xs text-primary hover:underline cursor-pointer flex-shrink-0">
                 Replace

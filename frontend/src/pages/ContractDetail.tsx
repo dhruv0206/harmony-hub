@@ -80,6 +80,34 @@ export default function ContractDetail() {
     },
   });
 
+  // Most recently signed request (so we can offer a download of the merged signed PDF)
+  const { data: latestSigned } = useQuery({
+    queryKey: ["latest-signed-sig-request", id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("signature_requests")
+        .select("id, status, signed_at, final_document_url")
+        .eq("contract_id", id!)
+        .eq("status", "signed")
+        .order("signed_at", { ascending: false })
+        .limit(1);
+      return data?.[0] || null;
+    },
+  });
+
+  // Resolve a signed URL (1h) for the final merged PDF when available
+  const { data: signedPdfDisplay } = useQuery({
+    queryKey: ["signed-pdf-url", (latestSigned as any)?.final_document_url],
+    queryFn: async () => {
+      const raw = (latestSigned as any)?.final_document_url as string | undefined;
+      if (!raw) return null;
+      if (raw.startsWith("http")) return raw;
+      const { data } = await supabase.storage.from("signatures").createSignedUrl(raw, 3600);
+      return data?.signedUrl || null;
+    },
+    enabled: !!(latestSigned as any)?.final_document_url,
+  });
+
   const { data: contract, isLoading } = useQuery({
     queryKey: ["contract", id],
     queryFn: async () => {
@@ -94,6 +122,19 @@ export default function ContractDetail() {
   });
 
   const providerId = (contract?.providers as any)?.id || contract?.provider_id;
+
+  // Resolve a signed URL for the original contract PDF (stored in private `contracts` bucket)
+  const { data: contractPdfDisplay } = useQuery({
+    queryKey: ["contract-pdf-display", id, (contract as any)?.document_url],
+    queryFn: async () => {
+      const raw = (contract as any)?.document_url as string | undefined;
+      if (!raw) return null;
+      if (raw.startsWith("http")) return raw;
+      const { data } = await supabase.storage.from("contracts").createSignedUrl(raw, 3600);
+      return data?.signedUrl || null;
+    },
+    enabled: !!(contract as any)?.document_url,
+  });
 
   // Fetch provider documents
   const { data: providerDocs } = useQuery({
@@ -300,9 +341,23 @@ export default function ContractDetail() {
               <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
                 <Edit className="h-4 w-4 mr-2" />Edit
               </Button>
+              {contractPdfDisplay && (
+                <Button size="sm" variant="outline" asChild>
+                  <a href={contractPdfDisplay} target="_blank" rel="noopener noreferrer">
+                    <PenTool className="h-4 w-4 mr-2" />View Contract PDF
+                  </a>
+                </Button>
+              )}
               {["draft", "pending_review", "sent", "negotiating"].includes(contract.status) && (
                 <Button size="sm" onClick={() => setSignatureModalOpen(true)}>
                   <PenTool className="h-4 w-4 mr-2" />Send for E-Signature
+                </Button>
+              )}
+              {signedPdfDisplay && (
+                <Button size="sm" variant="outline" asChild>
+                  <a href={signedPdfDisplay} target="_blank" rel="noopener noreferrer" download>
+                    <PenTool className="h-4 w-4 mr-2" />Download Signed PDF
+                  </a>
                 </Button>
               )}
               {(contract.status === "draft" || contract.status === "pending_review") && (

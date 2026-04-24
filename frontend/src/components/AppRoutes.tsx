@@ -125,7 +125,8 @@ export default function AppRoutes() {
       <Route path="/campaigns" element={<ProtectedRoute><RoleGuard roles={["admin", "sales_rep"]}><LazyPage><Campaigns /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/campaigns/:id" element={<ProtectedRoute><RoleGuard roles={["admin", "sales_rep"]}><LazyPage><CampaignDetail /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/campaigns/:id/queue" element={<ProtectedRoute><RoleGuard roles={["admin", "sales_rep"]}><LazyPage><CallQueue /></LazyPage></RoleGuard></ProtectedRoute>} />
-      <Route path="/sign/:requestId" element={<ProtectedRoute><LazyPage><SigningPage /></LazyPage></ProtectedRoute>} />
+      {/* Public signing route — auth via ?token=<signer_token> query param validated inside SigningPage */}
+      <Route path="/sign/:requestId" element={<LazyPage><SigningPage /></LazyPage>} />
       <Route path="/my-documents" element={<ProtectedRoute><RoleGuard roles={["provider"]}><LazyPage><MyDocuments /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/document-review/:docId" element={<ProtectedRoute><LazyPage><DocumentReviewPage /></LazyPage></ProtectedRoute>} />
       <Route path="/support" element={<ProtectedRoute><RoleGuard roles={["provider"]}><LazyPage><Support /></LazyPage></RoleGuard></ProtectedRoute>} />

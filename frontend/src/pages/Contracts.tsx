@@ -214,7 +214,10 @@ export default function Contracts() {
               </DialogTrigger>
               <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader><DialogTitle>Create Contract</DialogTitle></DialogHeader>
-                <ContractForm onSuccess={() => setShowForm(false)} />
+                <ContractForm onSuccess={(newId) => {
+                  setShowForm(false);
+                  if (newId) navigate(`/contracts/${newId}`);
+                }} />
               </DialogContent>
             </Dialog>
           )}

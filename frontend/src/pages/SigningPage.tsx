@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { sanitizeHtml } from "@/lib/sanitize";
@@ -57,6 +57,8 @@ const PAGE_WIDTH = typeof window !== "undefined" && window.innerWidth < 768 ? wi
 
 export default function SigningPage() {
   const { requestId } = useParams();
+  const [searchParams] = useSearchParams();
+  const tokenParam = searchParams.get("token");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, profile } = useAuth();
@@ -116,6 +118,12 @@ export default function SigningPage() {
   const contractId = (sigRequest as any)?.contract_id;
   const requireVerification = (sigRequest as any)?.require_verification ?? true;
 
+  // Auth: either (a) a valid ?token=<signer_token> query param (email link flow,
+  // no account needed) or (b) logged-in user (admin/sales_rep testing).
+  const expectedToken = (sigRequest as any)?.signer_token as string | undefined;
+  const tokenValid = !!expectedToken && !!tokenParam && expectedToken === tokenParam;
+  const authorized = tokenValid || !!user;
+
   const { data: providerDocument } = useQuery({
     queryKey: ["provider-document-signing", providerDocumentId],
     queryFn: async () => {
@@ -165,10 +173,25 @@ export default function SigningPage() {
     enabled: !!template?.id,
   });
 
-  const providerFields = useMemo(() =>
-    (signingFields || []).filter(f => f.assigned_to === "provider").sort((a, b) => a.display_order - b.display_order),
-    [signingFields]
-  );
+  // Signing fields for contract-originated flow (no template)
+  const { data: contractFields } = useQuery({
+    queryKey: ["contract-signing-fields", contractId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("contract_signing_fields" as any)
+        .select("*")
+        .eq("contract_id", contractId)
+        .order("display_order");
+      if (error) throw error;
+      return (data || []) as unknown as SigningField[];
+    },
+    enabled: !!contractId && !providerDocumentId,
+  });
+
+  const providerFields = useMemo(() => {
+    const src = (signingFields && signingFields.length > 0) ? signingFields : (contractFields || []);
+    return src.filter(f => f.assigned_to === "provider").sort((a, b) => a.display_order - b.display_order);
+  }, [signingFields, contractFields]);
 
   const hasFields = providerFields.length > 0;
 
@@ -193,9 +216,12 @@ export default function SigningPage() {
   const { data: templateFileUrl } = useQuery({
     queryKey: ["template-file-url", template?.file_url, contractRow?.document_url],
     queryFn: async () => {
-      // Contract-originated fallback: use contract.document_url directly
+      // Contract-originated fallback: resolve from private `contracts` bucket OR use legacy http URL as-is
       if (!template?.file_url && contractRow?.document_url) {
-        return contractRow.document_url;
+        const raw = contractRow.document_url;
+        if (raw.startsWith("http")) return raw;
+        const { data } = await supabase.storage.from("contracts").createSignedUrl(raw, 3600);
+        return data?.signedUrl || null;
       }
       if (!template?.file_url) return null;
       if (template.file_url.startsWith("http")) return template.file_url;
@@ -287,10 +313,13 @@ export default function SigningPage() {
   }, [provider?.contact_email, requestId, user?.id]);
 
   const kbQuestions = [
-    { q: "What is the city listed on your business address?", a: (provider?.city || "").toLowerCase().trim() },
-    { q: "What is the name of your assigned account representative?", a: (repProfile?.full_name || provider?.contact_name || "").toLowerCase().trim() },
-    { q: "What is the name of your business?", a: (provider?.business_name || "").toLowerCase().trim() },
-  ];
+    { q: "What is the city listed on your business address?", answer: provider?.city || "" },
+    { q: "What is the name of your assigned account representative?", answer: repProfile?.full_name || provider?.contact_name || "" },
+    { q: "What is the name of your business?", answer: provider?.business_name || "" },
+  ].map(question => ({
+    ...question,
+    a: question.answer.toLowerCase().trim(),
+  }));
 
   const handleOTPVerify = async () => {
     if (otpCode === generatedCode) {
@@ -597,6 +626,51 @@ export default function SigningPage() {
         legal_statement: `This document was electronically signed in accordance with the ESIGN Act and UETA.${requireVerification ? " The signer's identity was verified through email confirmation and knowledge-based authentication." : ""}`,
       };
 
+      // ── Generate merged signed PDF: overlay signature image onto the original
+      // PDF at the field position, upload to `signatures` bucket, store URL
+      // on signature_requests.final_document_url so admins can download the
+      // fully-executed copy.
+      let finalDocumentUrl: string | null = null;
+      try {
+        if (templateFileUrl && hasFields) {
+          const { PDFDocument: PdfLibDocument } = await import("pdf-lib");
+          const pdfBytes = await fetch(templateFileUrl).then(r => r.arrayBuffer());
+          const mergedDoc = await PdfLibDocument.load(pdfBytes);
+          const pages = mergedDoc.getPages();
+
+          for (const field of providerFields) {
+            const val = fieldValues[field.id];
+            if (!val?.value) continue;
+            const page = pages[(field.page_number || 1) - 1];
+            if (!page) continue;
+            const { width: pw, height: ph } = page.getSize();
+            const xPx = (field.x_position / 100) * pw;
+            const yPxFromTop = (field.y_position / 100) * ph;
+            const fieldHeightPx = (field.height / 100) * ph;
+            const fieldWidthPx = (field.width / 100) * pw;
+            const yPdf = ph - yPxFromTop - fieldHeightPx;
+
+            if ((field.field_type === "signature" || field.field_type === "initials") && val.value.startsWith("data:image")) {
+              const base64 = val.value.split(",")[1];
+              const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+              const img = await mergedDoc.embedPng(bytes);
+              page.drawImage(img, { x: xPx, y: yPdf, width: fieldWidthPx, height: fieldHeightPx });
+            } else if (field.field_type === "date" || field.field_type === "text") {
+              page.drawText(String(val.value), { x: xPx, y: yPdf + fieldHeightPx / 3, size: 11 });
+            }
+          }
+
+          const mergedBytes = await mergedDoc.save();
+          const mergedPath = `${requestId}/${Date.now()}-signed.pdf`;
+          const { error: mergeUploadErr } = await supabase.storage.from("signatures").upload(mergedPath, mergedBytes, {
+            contentType: "application/pdf", upsert: false,
+          });
+          if (!mergeUploadErr) finalDocumentUrl = mergedPath;
+        }
+      } catch (mergeErr) {
+        console.error("PDF merge failed, continuing without final_document_url", mergeErr);
+      }
+
       await supabase.from("signed_documents").insert({
         signature_request_id: requestId!,
         contract_id: sigRequest!.contract_id,
@@ -606,7 +680,8 @@ export default function SigningPage() {
 
       await supabase.from("signature_requests").update({
         status: "signed", signed_at: now, ip_address: "client", user_agent: navigator.userAgent,
-      }).eq("id", requestId!);
+        final_document_url: finalDocumentUrl,
+      } as any).eq("id", requestId!);
 
       if (providerDocumentId) {
         await supabase.from("provider_documents").update({ status: "signed", signed_at: now }).eq("id", providerDocumentId);
@@ -674,6 +749,13 @@ export default function SigningPage() {
 
   if (isLoading) return <div className="flex items-center justify-center h-64 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin mr-2" />Loading...</div>;
   if (!sigRequest) return <div className="text-center py-12 text-muted-foreground">Signature request not found</div>;
+  if (!authorized) return (
+    <div className="max-w-md mx-auto mt-20 text-center space-y-3 p-8 rounded-lg border border-destructive/30 bg-destructive/5">
+      <Lock className="h-8 w-8 text-destructive mx-auto" />
+      <h2 className="text-xl font-semibold">Invalid signing link</h2>
+      <p className="text-sm text-muted-foreground">This link is missing or has an invalid access token. Please use the link from your email exactly as provided.</p>
+    </div>
+  );
 
   const isExpired = sigRequest.expires_at && new Date(sigRequest.expires_at) < new Date();
   if (isExpired && sigRequest.status === "pending") {
@@ -859,6 +941,9 @@ export default function SigningPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
+            <p className="text-center text-sm text-muted-foreground">
+              Demo OTP: <span className="font-mono font-semibold text-foreground">{generatedCode || "Send code first"}</span>
+            </p>
             <div className="flex justify-center">
               <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode}>
                 <InputOTPGroup>
@@ -892,6 +977,9 @@ export default function SigningPage() {
               <p className="text-lg font-medium">{kbQuestions[kbQuestion]?.q}</p>
             </div>
             <div className="max-w-sm mx-auto space-y-4">
+              <p className="text-center text-sm text-muted-foreground">
+                Demo answer: <span className="font-medium text-foreground">{kbQuestions[kbQuestion]?.answer || "Not available"}</span>
+              </p>
               <Input value={kbAnswer} onChange={e => setKbAnswer(e.target.value)} placeholder="Your answer" onKeyDown={e => e.key === "Enter" && handleKBAnswer()} />
               <p className="text-xs text-muted-foreground text-center">{2 - kbAttempts[kbQuestion]} attempts remaining</p>
               <Button className="w-full" onClick={handleKBAnswer} disabled={!kbAnswer.trim()}>Submit Answer</Button>

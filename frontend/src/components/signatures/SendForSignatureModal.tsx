@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -25,6 +25,20 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
 
   const hasDocument = !!contract?.document_url;
 
+  // Resolve a viewable URL — legacy http links (seeded) pass through; storage
+  // paths in the private `contracts` bucket get a 1-hour signed URL.
+  const { data: displayDocUrl } = useQuery({
+    queryKey: ["contract-send-preview", contract?.document_url],
+    queryFn: async () => {
+      const raw = contract?.document_url;
+      if (!raw) return null;
+      if (raw.startsWith("http")) return raw;
+      const { data } = await supabase.storage.from("contracts").createSignedUrl(raw, 3600);
+      return data?.signedUrl || null;
+    },
+    enabled: !!contract?.document_url && open,
+  });
+
   const sendMutation = useMutation({
     mutationFn: async () => {
       if (!hasDocument) {
@@ -39,7 +53,7 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
         requested_by: user!.id,
         expires_at: expiresAt.toISOString(),
         message,
-      }).select().single();
+      }).select("*, signer_token").single();
       if (error) throw error;
 
       await supabase.from("signature_audit_log").insert({
@@ -61,7 +75,7 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
           title: "Action Required: Sign Your Contract",
           message: `Please review and sign your ${contract.contract_type} contract.`,
           type: "warning",
-          link: `/sign/${sigReq.id}`,
+          link: `/sign/${sigReq.id}?token=${(sigReq as any).signer_token}`,
         });
       }
 
@@ -95,9 +109,9 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
             </div>
             {hasDocument ? (
               <div className="pt-2 border-t border-border/50">
-                <a href={contract.document_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary hover:underline">
+                <a href={displayDocUrl || "#"} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary hover:underline">
                   <FileText className="h-3.5 w-3.5" />
-                  <span>Preview attached PDF</span>
+                  <span>{displayDocUrl ? "Preview attached PDF" : "Loading PDF..."}</span>
                 </a>
               </div>
             ) : (

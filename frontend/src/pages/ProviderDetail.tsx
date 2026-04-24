@@ -267,11 +267,11 @@ export default function ProviderDetail() {
               <DialogHeader><DialogTitle>Create Contract</DialogTitle></DialogHeader>
               <ContractForm
                 defaultProviderId={id!}
-                onSuccess={() => {
+                onSuccess={(newId) => {
                   setContractFormOpen(false);
                   queryClient.invalidateQueries({ queryKey: ["provider-contracts", id] });
                   queryClient.invalidateQueries({ queryKey: ["v-contract-list"] });
-                  toast.success("Contract created");
+                  if (newId) navigate(`/contracts/${newId}`);
                 }}
               />
             </DialogContent>
