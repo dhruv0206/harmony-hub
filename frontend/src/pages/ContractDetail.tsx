@@ -185,6 +185,23 @@ export default function ContractDetail() {
     },
   });
 
+  // Count signing fields placed on this contract — used to gate the
+  // "Send for E-Signature" button and to drive the "Set up signing fields" CTA.
+  const { data: signingFieldsCount } = useQuery({
+    queryKey: ["contract-signing-fields-count", id],
+    enabled: !!id && !isProvider,
+    queryFn: async () => {
+      const { data } = await (supabase as any).from("contract_signing_fields")
+        .select("id, field_type")
+        .eq("contract_id", id);
+      const all = (data || []) as any[];
+      return {
+        total: all.length,
+        signatures: all.filter(f => f.field_type === "signature" || f.field_type === "initials").length,
+      };
+    },
+  });
+
   const { data: activities } = useQuery({
     queryKey: ["contract_activities", providerId],
     enabled: !!providerId && !isProvider,
@@ -351,8 +368,26 @@ export default function ContractDetail() {
                   </a>
                 </Button>
               )}
+              {contractPdfDisplay && ["draft", "pending_review", "sent", "negotiating"].includes(contract.status) && (
+                <Button size="sm" variant="outline" onClick={() => navigate(`/contracts/${id}/fields`)}>
+                  <PenTool className="h-4 w-4 mr-2" />
+                  {signingFieldsCount && signingFieldsCount.total > 0
+                    ? `Edit Signing Fields (${signingFieldsCount.total})`
+                    : "Set Up Signing Fields"}
+                </Button>
+              )}
               {["draft", "pending_review", "sent", "negotiating"].includes(contract.status) && (
-                <Button size="sm" onClick={() => setSignatureModalOpen(true)}>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (contractPdfDisplay && (!signingFieldsCount || signingFieldsCount.signatures === 0)) {
+                      toast.warning("Place at least one signature field on the document before sending.");
+                      navigate(`/contracts/${id}/fields`);
+                      return;
+                    }
+                    setSignatureModalOpen(true);
+                  }}
+                >
                   <PenTool className="h-4 w-4 mr-2" />Send for E-Signature
                 </Button>
               )}

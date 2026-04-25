@@ -32,7 +32,7 @@ type SigningStep = "review" | "verify_email" | "confirm" | "complete";
 
 interface SigningField {
   id: string;
-  field_type: "signature" | "initials" | "checkbox" | "text" | "date";
+  field_type: "signature" | "initials" | "checkbox" | "text" | "date" | "name" | "email" | "company" | "title";
   field_label: string;
   assigned_to: "provider" | "admin" | "witness";
   page_number: number;

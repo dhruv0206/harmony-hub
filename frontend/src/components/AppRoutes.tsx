@@ -118,6 +118,7 @@ export default function AppRoutes() {
       <Route path="/document-templates" element={<ProtectedRoute><RoleGuard roles={["admin"]}><LazyPage><DocumentTemplates /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/document-templates/:id" element={<ProtectedRoute><RoleGuard roles={["admin"]}><LazyPage><DocumentTemplateDetail /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/document-templates/:id/fields" element={<ProtectedRoute><RoleGuard roles={["admin"]}><LazyPage><SigningFieldsEditor /></LazyPage></RoleGuard></ProtectedRoute>} />
+      <Route path="/contracts/:id/fields" element={<ProtectedRoute><RoleGuard roles={["admin"]}><LazyPage><SigningFieldsEditor /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/signatures" element={<ProtectedRoute><RoleGuard roles={["admin", "sales_rep"]}><LazyPage><SignaturesPage /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/batch-send" element={<ProtectedRoute><RoleGuard roles={["admin", "sales_rep"]}><LazyPage><BatchSendPage /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/counter-sign/:requestId" element={<ProtectedRoute><RoleGuard roles={["admin"]}><LazyPage><CounterSignPage /></LazyPage></RoleGuard></ProtectedRoute>} />

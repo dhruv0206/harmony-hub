@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { downloadStorageFile } from "@/lib/download-storage-file";
@@ -25,27 +25,32 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   ArrowLeft, Save, Trash2, PenTool, Type, CheckSquare, Calendar, Edit3,
-  X, Loader2, AlertTriangle, Sparkles,
+  X, Loader2, AlertTriangle, Sparkles, User, Mail, Building2, Briefcase,
 } from "lucide-react";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 
+type FieldType = "signature" | "initials" | "checkbox" | "text" | "date" | "name" | "email" | "company" | "title";
+
 interface SigningField {
   id: string;
-  field_type: "signature" | "initials" | "checkbox" | "text" | "date";
+  field_type: FieldType;
   field_label: string;
   assigned_to: "provider" | "admin";
   page_number: number;
   x_position: number;   // % of content width
   y_position: number;   // % of container height
-  width_pct: number;    // % of content width
-  height_pct: number;   // % of container height
+  width: number;        // % of content width  (DB column name)
+  height: number;       // % of container height (DB column name)
   is_required: boolean;
   placeholder_text: string;
+  validation_rule: string;
   display_order: number;
 }
+
+type EntityKind = "template" | "contract";
 
 interface AISuggestion {
   field_type: string;
@@ -57,9 +62,13 @@ interface AISuggestion {
 const FIELD_TYPES = [
   { type: "signature" as const, label: "Signature", icon: PenTool, w: 22, h: 3 },
   { type: "initials" as const, label: "Initials", icon: Edit3, w: 6, h: 2 },
+  { type: "date" as const, label: "Date Signed", icon: Calendar, w: 13, h: 2 },
+  { type: "name" as const, label: "Name", icon: User, w: 20, h: 2 },
+  { type: "email" as const, label: "Email", icon: Mail, w: 22, h: 2 },
+  { type: "company" as const, label: "Company", icon: Building2, w: 22, h: 2 },
+  { type: "title" as const, label: "Title", icon: Briefcase, w: 18, h: 2 },
+  { type: "text" as const, label: "Text", icon: Type, w: 20, h: 2 },
   { type: "checkbox" as const, label: "Checkbox", icon: CheckSquare, w: 2.5, h: 1.5 },
-  { type: "text" as const, label: "Text Field", icon: Type, w: 20, h: 2 },
-  { type: "date" as const, label: "Date", icon: Calendar, w: 13, h: 2 },
 ];
 
 const COLORS: Record<string, { border: string; bg: string }> = {
@@ -73,6 +82,10 @@ const FIELD_ICON: Record<string, string> = {
   checkbox: "☐",
   text: "Abc",
   date: "📅",
+  name: "👤",
+  email: "✉",
+  company: "🏢",
+  title: "💼",
 };
 
 let _ctr = 0;
@@ -81,9 +94,20 @@ const uid = () => `f-${++_ctr}-${Date.now()}`;
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 export default function SigningFieldsEditor() {
-  const { id: templateId } = useParams<{ id: string }>();
+  const { id: entityId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const qc = useQueryClient();
+
+  // URL-based mode detection: /document-templates/:id/fields vs /contracts/:id/fields.
+  // Each branch hits a different table and back-link, but the editor UI is identical.
+  const entity: EntityKind = location.pathname.startsWith("/contracts/") ? "contract" : "template";
+  const entityTable = entity === "contract" ? "contracts" : "document_templates";
+  const fieldsTable = entity === "contract" ? "contract_signing_fields" : "template_signing_fields";
+  const fkColumn = entity === "contract" ? "contract_id" : "template_id";
+  const backLink = entity === "contract" ? `/contracts/${entityId}` : `/document-templates/${entityId}`;
+  const entityQueryKey = entity === "contract" ? ["contract-for-fields", entityId] : ["document-template", entityId];
+  const fieldsQueryKey = entity === "contract" ? ["contract-signing-fields", entityId] : ["template-signing-fields", entityId];
 
   // ── Core state ──
   const [fields, setFields] = useState<SigningField[]>([]);
@@ -109,24 +133,55 @@ export default function SigningFieldsEditor() {
   const CONTENT_WIDTH = 672; // 816 - 144 padding
 
   /* ── Queries ── */
-  const { data: template, isLoading: tplLoading } = useQuery({
-    queryKey: ["document-template", templateId],
+  const { data: entityRow, isLoading: tplLoading } = useQuery({
+    queryKey: entityQueryKey,
     queryFn: async () => {
-      const { data, error } = await supabase.from("document_templates").select("*").eq("id", templateId!).single();
+      const { data, error } = await (supabase as any).from(entityTable).select("*").eq("id", entityId!).single();
       if (error) throw error;
       return data;
     },
-    enabled: !!templateId,
+    enabled: !!entityId,
+  });
+
+  // For contracts the document URL is `document_url`; for templates it's `file_url`.
+  // Normalize so the rest of this component reads `template.file_url` regardless.
+  const template = useMemo(() => {
+    if (!entityRow) return null;
+    if (entity === "contract") {
+      const url: string | null = entityRow.document_url ?? null;
+      const fileType = url?.toLowerCase().endsWith(".pdf") ? "pdf" : "docx";
+      return {
+        ...entityRow,
+        name: `${entityRow.contract_type || "Contract"} contract`,
+        file_url: url,
+        file_type: fileType,
+      };
+    }
+    return entityRow;
+  }, [entityRow, entity]);
+
+  // Contracts store the PDF as a storage path in `document_url`; resolve to a
+  // signed URL so react-pdf can fetch it. Templates already use full URLs.
+  const { data: resolvedPdfUrl } = useQuery({
+    queryKey: ["pdf-file-url", entity, template?.file_url],
+    enabled: !!template?.file_url,
+    queryFn: async () => {
+      const raw = template!.file_url!;
+      if (raw.startsWith("http")) return raw;
+      const bucket = entity === "contract" ? "contracts" : "document-templates";
+      const { data } = await supabase.storage.from(bucket).createSignedUrl(raw, 3600);
+      return data?.signedUrl || raw;
+    },
   });
 
   const { data: existingFields } = useQuery({
-    queryKey: ["template-signing-fields", templateId],
+    queryKey: fieldsQueryKey,
     queryFn: async () => {
-      const { data, error } = await supabase.from("template_signing_fields").select("*").eq("template_id", templateId!).order("display_order");
+      const { data, error } = await (supabase as any).from(fieldsTable).select("*").eq(fkColumn, entityId!).order("display_order");
       if (error) throw error;
       return data;
     },
-    enabled: !!templateId,
+    enabled: !!entityId,
   });
 
   // Load saved fields
@@ -140,10 +195,11 @@ export default function SigningFieldsEditor() {
         page_number: f.page_number,
         x_position: Number(f.x_position),
         y_position: Number(f.y_position),
-        width_pct: Number(f.width_pct),
-        height_pct: Number(f.height_pct),
+        width: Number(f.width),
+        height: Number(f.height),
         is_required: f.is_required ?? true,
         placeholder_text: f.placeholder_text || "",
+        validation_rule: f.validation_rule || "",
         display_order: f.display_order ?? 0,
       })));
     }
@@ -231,10 +287,11 @@ export default function SigningFieldsEditor() {
       page_number: pageNum,
       x_position: xPct,
       y_position: yPct,
-      width_pct: ft.w,
-      height_pct: ft.h,
+      width: ft.w,
+      height: ft.h,
       is_required: true,
       placeholder_text: "",
+      validation_rule: "",
       display_order: fields.length,
     };
     setFields(p => [...p, newField]);
@@ -244,31 +301,32 @@ export default function SigningFieldsEditor() {
 
   /* ── Save ── */
   const handleSave = async () => {
-    if (!templateId) return;
+    if (!entityId) return;
     setSaving(true);
     try {
-      await supabase.from("template_signing_fields").delete().eq("template_id", templateId);
+      await (supabase as any).from(fieldsTable).delete().eq(fkColumn, entityId);
       if (fields.length > 0) {
         const rows = fields.map((f, i) => ({
-          template_id: templateId,
+          [fkColumn]: entityId,
           field_type: f.field_type,
           field_label: f.field_label,
           assigned_to: f.assigned_to,
           page_number: f.page_number,
           x_position: f.x_position,
           y_position: f.y_position,
-          width_pct: f.width_pct,
-          height_pct: f.height_pct,
+          width: f.width,
+          height: f.height,
           is_required: f.is_required,
           placeholder_text: f.placeholder_text || null,
+          validation_rule: f.validation_rule || null,
           display_order: i,
         }));
-        const { error } = await supabase.from("template_signing_fields").insert(rows);
+        const { error } = await (supabase as any).from(fieldsTable).insert(rows);
         if (error) throw error;
       }
       toast.success(`Saved ${fields.length} signing field(s)`);
       setDirty(false);
-      qc.invalidateQueries({ queryKey: ["template-signing-fields", templateId] });
+      qc.invalidateQueries({ queryKey: fieldsQueryKey });
     } catch (err: any) {
       toast.error(err.message || "Failed to save");
     } finally {
@@ -320,7 +378,7 @@ export default function SigningFieldsEditor() {
   };
 
   const addSuggestedField = (s: AISuggestion, idx: number) => {
-    const ft = FIELD_TYPES.find(t => t.type === s.field_type) || FIELD_TYPES[3];
+    const ft = FIELD_TYPES.find(t => t.type === s.field_type) || FIELD_TYPES[7];
     const newField: SigningField = {
       id: uid(),
       field_type: ft.type,
@@ -329,10 +387,11 @@ export default function SigningFieldsEditor() {
       page_number: 1,
       x_position: 5,
       y_position: 2 + (fields.length * 4) % 80,
-      width_pct: ft.w,
-      height_pct: ft.h,
+      width: ft.w,
+      height: ft.h,
       is_required: true,
       placeholder_text: "",
+      validation_rule: "",
       display_order: fields.length,
     };
     setFields(p => [...p, newField]);
@@ -342,20 +401,21 @@ export default function SigningFieldsEditor() {
   };
 
   const addAllSuggestions = () => {
-    const newFields = suggestions.map((s, i) => {
-      const ft = FIELD_TYPES.find(t => t.type === s.field_type) || FIELD_TYPES[3];
+    const newFields: SigningField[] = suggestions.map((s, i) => {
+      const ft = FIELD_TYPES.find(t => t.type === s.field_type) || FIELD_TYPES[7];
       return {
         id: uid(),
         field_type: ft.type,
         field_label: s.field_label,
-        assigned_to: (s.assigned_to === "admin" ? "admin" : "provider") as "provider" | "admin",
+        assigned_to: (s.assigned_to === "admin" ? "admin" : "provider"),
         page_number: 1,
         x_position: 5,
         y_position: 2 + ((fields.length + i) * 4) % 80,
-        width_pct: ft.w,
-        height_pct: ft.h,
+        width: ft.w,
+        height: ft.h,
         is_required: true,
         placeholder_text: "",
+        validation_rule: "",
         display_order: fields.length + i,
       };
     });
@@ -395,8 +455,8 @@ export default function SigningFieldsEditor() {
           <Rnd
             key={field.id}
             size={{
-              width: (field.width_pct / 100) * pw,
-              height: (field.height_pct / 100) * ph,
+              width: (field.width / 100) * pw,
+              height: (field.height / 100) * ph,
             }}
             position={{
               x: (field.x_position / 100) * pw,
@@ -411,8 +471,8 @@ export default function SigningFieldsEditor() {
             }}
             onResizeStop={(_e, _dir, ref, _delta, position) => {
               updateField(field.id, {
-                width_pct: (ref.offsetWidth / pw) * 100,
-                height_pct: (ref.offsetHeight / ph) * 100,
+                width: (ref.offsetWidth / pw) * 100,
+                height: (ref.offsetHeight / ph) * 100,
                 x_position: (position.x / pw) * 100,
                 y_position: (position.y / ph) * 100,
               });
@@ -490,9 +550,9 @@ export default function SigningFieldsEditor() {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <AlertTriangle className="h-12 w-12 text-muted-foreground mb-4" />
-        <p className="text-lg font-medium">Template not found</p>
-        <Button variant="outline" className="mt-4" onClick={() => navigate("/document-templates")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />Back to Templates
+        <p className="text-lg font-medium">{entity === "contract" ? "Contract" : "Template"} not found</p>
+        <Button variant="outline" className="mt-4" onClick={() => navigate(entity === "contract" ? "/contracts" : "/document-templates")}>
+          <ArrowLeft className="h-4 w-4 mr-2" />Back
         </Button>
       </div>
     );
@@ -502,7 +562,7 @@ export default function SigningFieldsEditor() {
       <div className="flex flex-col items-center justify-center py-20">
         <AlertTriangle className="h-12 w-12 text-muted-foreground mb-4" />
         <p>No file uploaded. Upload a document first.</p>
-        <Button variant="outline" className="mt-4" onClick={() => navigate(`/document-templates/${templateId}`)}>
+        <Button variant="outline" className="mt-4" onClick={() => navigate(backLink)}>
           <ArrowLeft className="h-4 w-4 mr-2" />Back
         </Button>
       </div>
@@ -518,7 +578,7 @@ export default function SigningFieldsEditor() {
       {/* ─── TOOLBAR ─── */}
       <div className="border-b border-border bg-card px-4 py-2 shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/document-templates/${templateId}`)}>
+          <Button variant="ghost" size="sm" onClick={() => navigate(backLink)}>
             <ArrowLeft className="h-4 w-4 mr-1" />
             <span className="hidden sm:inline">Back to {template.name}</span>
             <span className="sm:hidden">Back</span>
@@ -616,7 +676,7 @@ export default function SigningFieldsEditor() {
         >
           {fileIsPdf ? (
             <Document
-              file={template.file_url}
+              file={resolvedPdfUrl || template.file_url}
               onLoadSuccess={({ numPages: n }) => setNumPages(n)}
               loading={<div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}
               error={<div className="flex flex-col items-center py-20 text-destructive"><AlertTriangle className="h-8 w-8 mb-2" /><p>Failed to load PDF</p></div>}
