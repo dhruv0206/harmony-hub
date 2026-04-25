@@ -15,7 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
-  CheckCircle, Shield, FileText, PenTool, AlertTriangle,
+  CheckCircle, FileText, PenTool, AlertTriangle,
   ArrowLeft, ArrowRight, Lock, Clock, Hash, Download,
   Loader2, Info, XCircle, Check,
 } from "lucide-react";
@@ -28,7 +28,7 @@ import "react-pdf/dist/esm/Page/TextLayer.css";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
-type SigningStep = "review" | "verify_email" | "verify_knowledge" | "confirm" | "complete";
+type SigningStep = "review" | "verify_email" | "confirm" | "complete";
 
 interface SigningField {
   id: string;
@@ -71,10 +71,8 @@ export default function SigningPage() {
   const [otpCode, setOtpCode] = useState("");
   const [generatedCode, setGeneratedCode] = useState("");
   const [otpAttempts, setOtpAttempts] = useState(0);
-  const [kbQuestion, setKbQuestion] = useState(0);
-  const [kbAnswer, setKbAnswer] = useState("");
-  const [kbAttempts, setKbAttempts] = useState([0, 0, 0]);
   const [locked, setLocked] = useState(false);
+  const [resetRequested, setResetRequested] = useState(false);
 
   // Field values
   const [fieldValues, setFieldValues] = useState<Record<string, FieldValue>>({});
@@ -247,15 +245,6 @@ export default function SigningPage() {
   const effectiveFileType = template?.file_type || (contractRow?.document_url ? "pdf" : null);
   const effectiveDocTitle = template?.name || (contractRow ? `${contractRow.contract_type} Contract` : "Document");
 
-  const { data: repProfile } = useQuery({
-    queryKey: ["rep-profile", provider?.assigned_sales_rep],
-    queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("full_name").eq("id", provider.assigned_sales_rep).single();
-      return data;
-    },
-    enabled: !!provider?.assigned_sales_rep,
-  });
-
   const { data: remainingDocs } = useQuery({
     queryKey: ["remaining-docs", providerId, providerDocumentId],
     queryFn: async () => {
@@ -314,7 +303,6 @@ export default function SigningPage() {
   const sendOTP = useCallback(() => {
     const code = String(Math.floor(100000 + Math.random() * 900000));
     setGeneratedCode(code);
-    toast.success(`Verification code sent to ${provider?.contact_email}: ${code}`, { duration: 15000 });
     supabase.from("signature_audit_log").insert({
       signature_request_id: requestId!, action: "identity_check_started" as any,
       actor_id: user?.id, metadata: { type: "email_code" },
@@ -323,16 +311,7 @@ export default function SigningPage() {
       signature_request_id: requestId!, verification_type: "email_code" as any,
       status: "pending" as any, attempted_at: new Date().toISOString(),
     });
-  }, [provider?.contact_email, requestId, user?.id]);
-
-  const kbQuestions = [
-    { q: "What is the city listed on your business address?", answer: provider?.city || "" },
-    { q: "What is the name of your assigned account representative?", answer: repProfile?.full_name || provider?.contact_name || "" },
-    { q: "What is the name of your business?", answer: provider?.business_name || "" },
-  ].map(question => ({
-    ...question,
-    a: question.answer.toLowerCase().trim(),
-  }));
+  }, [requestId, user?.id]);
 
   const handleOTPVerify = async () => {
     if (otpCode === generatedCode) {
@@ -342,10 +321,9 @@ export default function SigningPage() {
         signature_request_id: requestId!, action: "identity_check_passed" as any,
         actor_id: user?.id, metadata: { type: "email_code" },
       });
-      toast.success("Email verified!");
-      setStep("verify_knowledge");
-      setKbQuestion(0);
-      setKbAnswer("");
+      await supabase.from("signature_requests").update({ status: "identity_verified" }).eq("id", requestId!);
+      toast.success("Identity verified!");
+      setStep("confirm");
     } else {
       const newAttempts = otpAttempts + 1;
       setOtpAttempts(newAttempts);
@@ -357,16 +335,6 @@ export default function SigningPage() {
           signature_request_id: requestId!, action: "identity_check_failed" as any,
           actor_id: user?.id, metadata: { type: "email_code", reason: "max_attempts" },
         });
-        const { data: adminRoles } = await supabase.from("user_roles").select("user_id").eq("role", "admin");
-        if (adminRoles) {
-          await supabase.from("notifications").insert(
-            adminRoles.map(r => ({
-              user_id: r.user_id, title: "Signing Verification Failed",
-              message: `${provider?.business_name} failed identity verification for "${template?.name || "document"}".`,
-              type: "warning",
-            }))
-          );
-        }
         toast.error("Too many failed attempts. Signing locked.");
       } else {
         toast.error(`Incorrect code. ${3 - newAttempts} attempts remaining.`);
@@ -375,53 +343,30 @@ export default function SigningPage() {
     setOtpCode("");
   };
 
-  const handleKBAnswer = async () => {
-    const correct = kbQuestions[kbQuestion]?.a;
-    const userAnswer = kbAnswer.toLowerCase().trim();
-    if (correct && userAnswer === correct) {
-      if (kbQuestion >= 2) {
-        await supabase.from("signature_verifications").insert({
-          signature_request_id: requestId!, verification_type: "knowledge_questions" as any,
-          status: "passed" as any, completed_at: new Date().toISOString(),
-          verification_data: { questions_passed: 3 },
-        });
-        await supabase.from("signature_audit_log").insert({
-          signature_request_id: requestId!, action: "identity_check_passed" as any,
-          actor_id: user?.id, metadata: { type: "knowledge_questions" },
-        });
-        await supabase.from("signature_requests").update({ status: "identity_verified" }).eq("id", requestId!);
-        toast.success("Identity verified!");
-        setStep("confirm");
-      } else {
-        setKbQuestion(kbQuestion + 1);
-        toast.success("Correct!");
+  // Signer-initiated lockout recovery: notify admins so they can resend the link.
+  const handleRequestReset = async () => {
+    try {
+      const { data: adminRoles } = await supabase.from("user_roles").select("user_id").eq("role", "admin");
+      if (adminRoles) {
+        await supabase.from("notifications").insert(
+          adminRoles.map(r => ({
+            user_id: r.user_id,
+            title: "Signing locked — signer requested help",
+            message: `${provider?.business_name || provider?.contact_name || "Signer"} has been locked out of signing "${template?.name || effectiveDocTitle || "document"}" and is asking for a new link.`,
+            type: "warning",
+            link: `/signatures`,
+          }))
+        );
       }
-    } else {
-      const newAttempts = [...kbAttempts];
-      newAttempts[kbQuestion]++;
-      setKbAttempts(newAttempts);
-      if (newAttempts[kbQuestion] >= 2) {
-        setLocked(true);
-        await supabase.from("signature_audit_log").insert({
-          signature_request_id: requestId!, action: "identity_check_failed" as any,
-          actor_id: user?.id, metadata: { type: "knowledge_questions", question: kbQuestion },
-        });
-        const { data: adminRoles } = await supabase.from("user_roles").select("user_id").eq("role", "admin");
-        if (adminRoles) {
-          await supabase.from("notifications").insert(
-            adminRoles.map(r => ({
-              user_id: r.user_id, title: "Signing Verification Failed",
-              message: `${provider?.business_name} failed knowledge verification for "${template?.name || "document"}".`,
-              type: "warning",
-            }))
-          );
-        }
-        toast.error("Verification failed. Signing has been locked.");
-      } else {
-        toast.error("Incorrect. Try again.");
-      }
+      await supabase.from("signature_audit_log").insert({
+        signature_request_id: requestId!, action: "identity_check_failed" as any,
+        actor_id: user?.id, metadata: { type: "lockout_help_requested" },
+      });
+      setResetRequested(true);
+      toast.success("Your sender has been notified.");
+    } catch (e: any) {
+      toast.error(e.message || "Could not send request. Please contact your sender directly.");
     }
-    setKbAnswer("");
   };
 
   // ── Proceed from review ───────────────────────────────────────────────────
@@ -787,21 +732,51 @@ export default function SigningPage() {
 
   if (locked) {
     return (
-      <div className="max-w-lg mx-auto mt-20 text-center space-y-4">
-        <Lock className="h-16 w-16 text-destructive mx-auto" />
-        <h1 className="text-2xl font-bold">Signing Locked</h1>
-        <p className="text-muted-foreground">Too many failed verification attempts. An administrator has been notified.</p>
+      <div className="max-w-lg mx-auto mt-20">
+        <Card className="border-amber-500/40">
+          <CardHeader className="text-center">
+            <div className="mx-auto h-16 w-16 rounded-full bg-amber-500/10 flex items-center justify-center">
+              <Lock className="h-8 w-8 text-amber-600" />
+            </div>
+            <CardTitle className="mt-3 text-xl">Signing temporarily locked</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              You entered the wrong code 3 times in a row. For security, we paused this signing session.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg bg-muted/50 p-4 text-sm space-y-2">
+              <p className="font-medium">What now?</p>
+              <p className="text-muted-foreground">
+                Click below to let your sender know — they can send you a fresh link. Nothing was signed, and no document data was lost.
+              </p>
+            </div>
+            {resetRequested ? (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-center">
+                <CheckCircle className="h-5 w-5 text-primary mx-auto mb-2" />
+                <p className="text-sm font-medium">Your sender has been notified.</p>
+                <p className="text-xs text-muted-foreground mt-1">They'll send you a new link shortly. You can close this window.</p>
+              </div>
+            ) : (
+              <Button className="w-full" onClick={handleRequestReset}>Request a new signing link</Button>
+            )}
+            {provider?.contact_email && (
+              <p className="text-xs text-muted-foreground text-center">
+                Or reach out directly to your sender.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   const stepsList = requireVerification
-    ? [{ key: "review", label: "Review & Fill" }, { key: "verify", label: "Verify Identity" }, { key: "confirm", label: "Confirm" }]
+    ? [{ key: "review", label: "Review & Fill" }, { key: "verify", label: "Verify Identity" }, { key: "confirm", label: "Confirm & Sign" }]
     : [{ key: "review", label: "Review & Fill" }, { key: "confirm", label: "Confirm & Sign" }];
 
   const stepMap: Record<string, number> = {};
   if (requireVerification) {
-    stepMap["review"] = 0; stepMap["verify_email"] = 1; stepMap["verify_knowledge"] = 1; stepMap["confirm"] = 2;
+    stepMap["review"] = 0; stepMap["verify_email"] = 1; stepMap["confirm"] = 2;
   } else {
     stepMap["review"] = 0; stepMap["confirm"] = 1;
   }
@@ -948,15 +923,32 @@ export default function SigningPage() {
             <div className="flex items-center gap-3">
               <Lock className="h-6 w-6 text-primary" />
               <div>
-                <CardTitle>Email Verification</CardTitle>
-                <p className="text-sm text-muted-foreground">Enter the 6-digit code sent to {provider?.contact_email}</p>
+                <CardTitle>Verify your identity</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  We sent a 6-digit code to {provider?.contact_email || "your email on file"}.
+                </p>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            <p className="text-center text-sm text-muted-foreground">
-              Demo OTP: <span className="font-mono font-semibold text-foreground">{generatedCode || "Send code first"}</span>
-            </p>
+            {/* Demo-mode banner: shows the OTP code on screen because email delivery
+                is not wired up in dev/preview. Hidden in real production via env flag. */}
+            {generatedCode && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 p-4 space-y-2">
+                <div className="flex items-start gap-2">
+                  <span className="text-lg leading-none mt-0.5">🛠</span>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">Demo Mode</p>
+                    <p className="text-sm mt-1">
+                      Your code: <span className="font-mono font-bold text-base">{generatedCode}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      In production, this code would arrive in the recipient's email inbox.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="flex justify-center">
               <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode}>
                 <InputOTPGroup>
@@ -968,34 +960,6 @@ export default function SigningPage() {
             <div className="flex justify-center gap-3">
               <Button variant="outline" onClick={() => { sendOTP(); setOtpCode(""); }}>Resend Code</Button>
               <Button onClick={handleOTPVerify} disabled={otpCode.length !== 6}>Verify</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ═══ STEP 2b: Knowledge Questions ═══ */}
-      {step === "verify_knowledge" && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <Shield className="h-6 w-6 text-primary" />
-              <div>
-                <CardTitle>Identity Verification</CardTitle>
-                <p className="text-sm text-muted-foreground">Question {kbQuestion + 1} of 3</p>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="bg-muted/50 rounded-lg p-6 text-center">
-              <p className="text-lg font-medium">{kbQuestions[kbQuestion]?.q}</p>
-            </div>
-            <div className="max-w-sm mx-auto space-y-4">
-              <p className="text-center text-sm text-muted-foreground">
-                Demo answer: <span className="font-medium text-foreground">{kbQuestions[kbQuestion]?.answer || "Not available"}</span>
-              </p>
-              <Input value={kbAnswer} onChange={e => setKbAnswer(e.target.value)} placeholder="Your answer" onKeyDown={e => e.key === "Enter" && handleKBAnswer()} />
-              <p className="text-xs text-muted-foreground text-center">{2 - kbAttempts[kbQuestion]} attempts remaining</p>
-              <Button className="w-full" onClick={handleKBAnswer} disabled={!kbAnswer.trim()}>Submit Answer</Button>
             </div>
           </CardContent>
         </Card>

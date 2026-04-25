@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { Search, CheckCircle, Eye, XCircle, Bell, AlertTriangle, LayoutGrid, PenTool, Trash2, Link as LinkIcon } from "lucide-react";
+import { Search, CheckCircle, Eye, XCircle, Bell, AlertTriangle, LayoutGrid, PenTool, Trash2, Link as LinkIcon, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { useRealtimeSubscription } from "@/hooks/use-realtime";
 import DocumentPipelineKanban from "@/components/signatures/DocumentPipelineKanban";
@@ -113,6 +113,32 @@ export default function SignaturesPage() {
       await supabase.from("signature_audit_log").insert({ signature_request_id: id, action: "voided" as any });
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["signature-requests"] }); toast.success("Request voided"); },
+  });
+
+  // Reset a locked-out signing session: clear failed verifications, set status
+  // back to "pending", and copy a fresh link to clipboard so the admin can
+  // re-share it with the signer.
+  const resetMutation = useMutation({
+    mutationFn: async (r: any) => {
+      await supabase.from("signature_verifications").delete().eq("signature_request_id", r.id);
+      await supabase.from("signature_requests").update({
+        status: "pending",
+        viewed_at: null,
+      }).eq("id", r.id);
+      await supabase.from("signature_audit_log").insert({
+        signature_request_id: r.id,
+        action: "request_created" as any,
+        actor_id: user?.id,
+        metadata: { type: "reset_after_lockout" },
+      });
+      return `${window.location.origin}/sign/${r.id}?token=${(r as any).signer_token}`;
+    },
+    onSuccess: async (link) => {
+      try { await navigator.clipboard.writeText(link); } catch {}
+      queryClient.invalidateQueries({ queryKey: ["signature-requests"] });
+      toast.success("Reset complete — fresh link copied to clipboard");
+    },
+    onError: (e: any) => toast.error(e?.message || "Could not reset"),
   });
 
   // Summary stats
@@ -354,7 +380,8 @@ export default function SignaturesPage() {
                                     <LinkIcon className="h-3.5 w-3.5" />
                                   </a>
                                 </Button>
-                                <Button variant="ghost" size="sm" onClick={() => voidMutation.mutate(r.id)}><XCircle className="h-3.5 w-3.5 text-destructive" /></Button>
+                                <Button variant="ghost" size="sm" title="Reset / unlock — clears failed verifications and copies a fresh link" onClick={() => resetMutation.mutate(r)}><RotateCcw className="h-3.5 w-3.5" /></Button>
+                                <Button variant="ghost" size="sm" title="Void this request" onClick={() => voidMutation.mutate(r.id)}><XCircle className="h-3.5 w-3.5 text-destructive" /></Button>
                               </>
                             )}
                           </div>
