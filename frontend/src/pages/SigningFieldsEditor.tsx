@@ -831,15 +831,36 @@ export default function SigningFieldsEditor() {
                 </div>
 
                 {selectedField.field_type === "text" && (
-                  <div>
-                    <label className="text-xs text-muted-foreground block mb-1">Placeholder</label>
-                    <Input
-                      value={selectedField.placeholder_text || ""}
-                      onChange={e => updateField(selectedField.id, { placeholder_text: e.target.value })}
-                      className="h-8 text-sm"
-                      placeholder="e.g. Enter NPI number"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-1">Placeholder</label>
+                      <Input
+                        value={selectedField.placeholder_text || ""}
+                        onChange={e => updateField(selectedField.id, { placeholder_text: e.target.value })}
+                        className="h-8 text-sm"
+                        placeholder="e.g. Enter NPI number"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-1">Validation</label>
+                      <Select
+                        value={selectedField.validation_rule || "none"}
+                        onValueChange={v => updateField(selectedField.id, { validation_rule: v === "none" ? "" : v })}
+                      >
+                        <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No validation</SelectItem>
+                          <SelectItem value="email">Email format</SelectItem>
+                          <SelectItem value="phone">Phone number</SelectItem>
+                          <SelectItem value="zip">ZIP code (US)</SelectItem>
+                          <SelectItem value="ssn">SSN</SelectItem>
+                          <SelectItem value="number">Number only</SelectItem>
+                          <SelectItem value="npi">NPI (10 digits)</SelectItem>
+                          <SelectItem value="ein">EIN</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
                 )}
 
                 <Button variant="destructive" size="sm" className="w-full" onClick={() => { removeField(selectedField.id); }}>

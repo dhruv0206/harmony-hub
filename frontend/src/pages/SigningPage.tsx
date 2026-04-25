@@ -205,23 +205,48 @@ export default function SigningPage() {
 
   const hasFields = providerFields.length > 0;
 
-  // Initialize date auto-fill fields
+  // Initialize auto-fill fields. DocuSign behavior: Date Signed, Name, Email,
+  // Company, Title fields are auto-populated from the recipient's profile and
+  // are read-only by default. Date is also auto-filled with today's date.
+  // When the source field is empty (e.g. provider has no contact_email on
+  // file), the field stays editable so the signer can supply it themselves —
+  // this is the "empty source field shouldn't break signing" guarantee.
   useEffect(() => {
     if (!providerFields.length) return;
     setFieldValues(prev => {
       const next = { ...prev };
+      const todayLocal = new Date().toLocaleDateString();
       providerFields.forEach(f => {
-        if (!(f.id in next)) {
-          if (f.field_type === "date" && f.auto_fill_date) {
-            next[f.id] = { value: new Date().toLocaleDateString(), valid: true };
-          } else if (f.field_type === "checkbox") {
+        if (f.id in next) return;
+        switch (f.field_type) {
+          case "date":
+            // All date fields default to today, signer can edit if not auto_fill_date.
+            next[f.id] = { value: todayLocal, valid: true };
+            break;
+          case "checkbox":
             next[f.id] = { value: "false", valid: !f.is_required };
+            break;
+          case "name": {
+            const v = (provider?.contact_name || provider?.business_name || "").trim();
+            if (v) next[f.id] = { value: v, valid: true };
+            break;
           }
+          case "email": {
+            const v = (provider?.contact_email || "").trim();
+            if (v) next[f.id] = { value: v, valid: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) };
+            break;
+          }
+          case "company": {
+            const v = (provider?.business_name || "").trim();
+            if (v) next[f.id] = { value: v, valid: true };
+            break;
+          }
+          // "title" left blank — we don't store provider titles; signer fills it.
         }
       });
       return next;
     });
-  }, [providerFields]);
+  }, [providerFields, provider?.contact_name, provider?.business_name, provider?.contact_email]);
 
   const { data: templateFileUrl } = useQuery({
     queryKey: ["template-file-url", template?.file_url, contractRow?.document_url],
@@ -503,13 +528,27 @@ export default function SigningPage() {
   };
 
   const validateField = (field: SigningField, value: string): boolean => {
-    if (!field.validation_rule || field.validation_rule === "none" || !value) return true;
+    if (!value) return true; // empty = let "required" check handle it
+    // Validate by field type first (DocuSign-style implicit format checks).
+    if (field.field_type === "email") return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    if (field.field_type === "date") {
+      const d = new Date(value);
+      return !isNaN(d.getTime());
+    }
+    // Then explicit validation_rule on text fields.
+    if (!field.validation_rule || field.validation_rule === "none") return true;
     switch (field.validation_rule) {
       case "email": return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
       case "phone": return /^[\d\s\-\(\)\+]{7,}$/.test(value);
       case "npi": return /^\d{10}$/.test(value);
       case "ein": return /^\d{2}-?\d{7}$/.test(value);
-      default: return true;
+      case "zip": return /^\d{5}(-\d{4})?$/.test(value);
+      case "ssn": return /^\d{3}-?\d{2}-?\d{4}$/.test(value);
+      case "number": return /^-?\d+(\.\d+)?$/.test(value);
+      default:
+        // Treat unknown validation_rule as a custom regex pattern.
+        try { return new RegExp(field.validation_rule).test(value); }
+        catch { return true; }
     }
   };
 
@@ -1306,7 +1345,37 @@ function FieldOverlay({
     );
   }
 
-  // Text field
+  // Auto-filled identity fields: name / email / company / title.
+  // Read-only when value is supplied by the recipient profile; falls back to
+  // an editable input when the source data was empty.
+  if (
+    field.field_type === "name" ||
+    field.field_type === "email" ||
+    field.field_type === "company" ||
+    field.field_type === "title"
+  ) {
+    const hasAutoFill = !!value?.value;
+    return (
+      <div id={`field-${field.id}`} style={style} className="relative">
+        <input
+          type={field.field_type === "email" ? "email" : "text"}
+          readOnly={hasAutoFill && field.field_type !== "title"}
+          className={`w-full h-full bg-transparent border-b-2 ${borderClass} rounded-none outline-none text-xs px-1 ${hasAutoFill && field.field_type !== "title" ? "cursor-default" : "focus:border-primary"}`}
+          placeholder={field.placeholder_text || field.field_label}
+          value={value?.value || ""}
+          onChange={e => onChange(e.target.value)}
+          tabIndex={field.display_order}
+        />
+        {isInvalid && (
+          <span className="absolute -bottom-4 left-0 text-[9px] text-destructive">
+            Invalid {field.field_type} format
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // Text field (default fallback)
   return (
     <div id={`field-${field.id}`} style={style} className="relative">
       <input
@@ -1319,7 +1388,7 @@ function FieldOverlay({
       />
       {isInvalid && (
         <span className="absolute -bottom-4 left-0 text-[9px] text-destructive">
-          Invalid {field.validation_rule} format
+          Invalid {field.validation_rule || "value"} format
         </span>
       )}
     </div>
