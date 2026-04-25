@@ -306,6 +306,34 @@ export default function SigningPage() {
     });
   }, [requiredFields, fieldValues]);
 
+  // First incomplete required field — used by the floating "Start / Next"
+  // affordance to jump-scroll the signer to wherever they need to fill next.
+  const nextIncompleteField = useMemo(() => {
+    return requiredFields.find(f => {
+      const val = fieldValues[f.id];
+      if (!val) return true;
+      if (f.field_type === "checkbox") return val.value !== "true";
+      return val.value.trim() === "" || !val.valid;
+    }) || null;
+  }, [requiredFields, fieldValues]);
+
+  const remainingRequiredCount = useMemo(() => {
+    return requiredFields.filter(f => {
+      const val = fieldValues[f.id];
+      if (!val) return true;
+      if (f.field_type === "checkbox") return val.value !== "true";
+      return val.value.trim() === "" || !val.valid;
+    }).length;
+  }, [requiredFields, fieldValues]);
+
+  const scrollToField = useCallback((fieldId: string) => {
+    const el = document.getElementById(`field-${fieldId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-4", "ring-primary/60", "animate-pulse");
+    setTimeout(() => el.classList.remove("ring-4", "ring-primary/60", "animate-pulse"), 1800);
+  }, []);
+
   // ── Mark as viewed ────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -398,19 +426,7 @@ export default function SigningPage() {
 
   const handleProceedFromReview = () => {
     if (hasFields && !allRequiredComplete) {
-      // Find first incomplete required field and scroll to it
-      const firstIncomplete = requiredFields.find(f => {
-        const val = fieldValues[f.id];
-        if (!val) return true;
-        if (f.field_type === "checkbox") return val.value !== "true";
-        return val.value.trim() === "" || !val.valid;
-      });
-      if (firstIncomplete) {
-        const el = document.getElementById(`field-${firstIncomplete.id}`);
-        el?.scrollIntoView({ behavior: "smooth", block: "center" });
-        el?.classList.add("animate-pulse");
-        setTimeout(() => el?.classList.remove("animate-pulse"), 2000);
-      }
+      if (nextIncompleteField) scrollToField(nextIncompleteField.id);
       toast.error("Please complete all required fields before continuing.");
       return;
     }
@@ -839,6 +855,28 @@ export default function SigningPage() {
           ))}
         </div>
       </div>
+
+      {/* DocuSign-style floating "Start / Next" pill — points the signer at
+          the next required field they need to fill. Only renders during the
+          review step when the document has fields. Clicking auto-scrolls and
+          pulses the target field. */}
+      {step === "review" && hasFields && nextIncompleteField && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-6 z-50 pointer-events-auto">
+          <button
+            onClick={() => scrollToField(nextIncompleteField.id)}
+            className="flex items-center gap-2 bg-primary text-primary-foreground rounded-full pl-4 pr-2 py-1.5 shadow-lg hover:shadow-xl transition-shadow ring-2 ring-primary/30 animate-pulse"
+            title="Jump to next required field"
+          >
+            <span className="text-xs font-medium">
+              {remainingRequiredCount === requiredFields.length ? "Start" : "Next"}
+            </span>
+            <span className="bg-primary-foreground/20 rounded-full px-2 py-0.5 text-[10px] font-semibold">
+              {remainingRequiredCount} required field{remainingRequiredCount !== 1 ? "s" : ""} left
+            </span>
+            <ArrowRight className="h-3.5 w-3.5 ml-1" />
+          </button>
+        </div>
+      )}
 
       {/* ═══ STEP 1: Review & Fill Fields ═══ */}
       {step === "review" && (
