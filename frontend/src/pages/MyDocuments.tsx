@@ -66,7 +66,7 @@ export default function MyDocuments() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("provider_documents")
-        .select("*, document_templates(name, short_code, document_type, file_url), service_packages(name), signature_requests(expires_at)")
+        .select("*, document_templates(name, short_code, document_type, file_url), service_packages(name), signature_requests!signature_requests_provider_document_id_fkey(expires_at)")
         .eq("provider_id", provider!.id)
         .neq("status", "voided")
         .order("signing_order");

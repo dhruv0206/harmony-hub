@@ -67,7 +67,7 @@ export function ProviderDocumentsTab({ providerId }: { providerId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("provider_documents")
-        .select("*, document_templates(name, short_code, document_type, file_url), signature_requests(expires_at, created_at)")
+        .select("*, document_templates(name, short_code, document_type, file_url), signature_requests!signature_requests_provider_document_id_fkey(expires_at, created_at)")
         .eq("provider_id", providerId)
         .order("signing_order");
       if (error) throw error;

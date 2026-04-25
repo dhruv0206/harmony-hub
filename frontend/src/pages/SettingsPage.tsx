@@ -121,7 +121,7 @@ export default function SettingsPage() {
     queryKey: ["company-settings"],
     staleTime: 5 * 60 * 1000, // 5 minutes for settings
     queryFn: async () => {
-      const { data } = await supabase.from("company_settings").select("*").limit(1).single();
+      const { data } = await supabase.from("company_settings").select("*").limit(1).maybeSingle();
       return data;
     },
   });

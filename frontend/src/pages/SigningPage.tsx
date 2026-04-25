@@ -1394,6 +1394,7 @@ function DocxViewerInline({ fileUrl }: { fileUrl: string }) {
 
 function SigningComplete({ requestId, remainingDocs }: { requestId: string; remainingDocs: any[] }) {
   const navigate = useNavigate();
+  const { user, profile } = useAuth();
 
   const { data } = useQuery({
     queryKey: ["signed-document", requestId],

@@ -19,7 +19,10 @@ export function AuthRoute() {
 }
 
 export function RoleGuard({ roles, children }: { roles: string[]; children: ReactNode }) {
-  const { role } = useAuth();
+  const { role, userDataLoaded } = useAuth();
+  // Wait for the role fetch to complete; otherwise on a fresh page load `role`
+  // is briefly null and the guard would redirect admin-only routes to "/".
+  if (!userDataLoaded) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Loading...</div>;
   if (!role || !roles.includes(role)) return <Navigate to="/" replace />;
   return <>{children}</>;
 }

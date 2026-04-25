@@ -77,7 +77,7 @@ function NetworkReport() {
       const rows: any[] = [];
 
       if (type !== "law_firm") {
-        let q = supabase.from("providers").select("id, business_name, status, specialty_category_id, state, created_at, provider_subscriptions(monthly_amount, membership_tiers(name))") as any;
+        let q = supabase.from("providers").select("id, business_name, status, specialty_category_id, specialty_categories(name), state, created_at, provider_subscriptions(monthly_amount, membership_tiers(name))") as any;
         if (status !== "all") q = q.eq("status", status);
         if (state !== "all") q = q.eq("state", state);
         if (from) q = q.gte("created_at", from.toISOString());
@@ -92,7 +92,7 @@ function NetworkReport() {
           const sub = p.provider_subscriptions?.[0];
           rows.push({
             name: p.business_name, type: "Provider", tier: sub?.membership_tiers?.name ?? "—",
-            category: p.specialty_category_id ?? "—", state: p.state ?? "—",
+            category: p.specialty_categories?.name ?? "—", state: p.state ?? "—",
             monthlyFee: sub ? `$${Number(sub.monthly_amount).toFixed(2)}` : "—",
             joinDate: p.created_at ? format(new Date(p.created_at), "MMM d, yyyy") : "—",
             docsSigned: countMap[p.id] ?? 0, status: p.status,

@@ -20,7 +20,7 @@ export default function BrandingSettings() {
     queryKey: ["company-settings"],
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { data } = await supabase.from("company_settings").select("*").limit(1).single();
+      const { data } = await supabase.from("company_settings").select("*").limit(1).maybeSingle();
       return data;
     },
   });

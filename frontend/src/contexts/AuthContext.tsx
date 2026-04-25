@@ -11,6 +11,11 @@ interface AuthContextType {
   role: AppRole | null;
   profile: { full_name: string | null; email: string | null; avatar_url: string | null } | null;
   loading: boolean;
+  // True once user_roles + profiles have been fetched (or the user is logged out).
+  // Distinct from `loading` so route guards can wait for the role before deciding
+  // whether to redirect — otherwise a fresh page load briefly sees `role: null`
+  // and bounces admin-only routes back to "/".
+  userDataLoaded: boolean;
   signOut: () => Promise<void>;
 }
 
@@ -20,6 +25,7 @@ const AuthContext = createContext<AuthContextType>({
   role: null,
   profile: null,
   loading: true,
+  userDataLoaded: false,
   signOut: async () => {},
 });
 
@@ -31,7 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<AppRole | null>(null);
   const [profile, setProfile] = useState<AuthContextType["profile"]>(null);
   const [loading, setLoading] = useState(true);
+  const [userDataLoaded, setUserDataLoaded] = useState(false);
 
+  // NOTE: Don't await this from inside onAuthStateChange — calling Supabase
+  // queries from that callback deadlocks the SDK. Always fire-and-forget via
+  // setTimeout(..., 0) and let `userDataLoaded` flip when it finishes.
   const fetchUserData = async (userId: string) => {
     const [roleRes, profileRes] = await Promise.all([
       supabase.from("user_roles").select("role").eq("user_id", userId).single(),
@@ -39,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ]);
     if (roleRes.data) setRole(roleRes.data.role);
     if (profileRes.data) setProfile(profileRes.data);
+    setUserDataLoaded(true);
   };
 
   const loginLogged = useRef<string | null>(null);
@@ -65,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setRole(null);
           setProfile(null);
+          setUserDataLoaded(true);
           loginLogged.current = null;
         }
         setLoading(false);
@@ -76,6 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchUserData(session.user.id);
+      } else {
+        setUserDataLoaded(true);
       }
       setLoading(false);
     });
@@ -89,10 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setRole(null);
     setProfile(null);
+    setUserDataLoaded(true);
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, role, profile, loading, signOut }}>
+    <AuthContext.Provider value={{ session, user, role, profile, loading, userDataLoaded, signOut }}>
       {children}
     </AuthContext.Provider>
   );

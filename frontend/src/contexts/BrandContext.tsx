@@ -94,7 +94,7 @@ export function BrandProvider({ children }: { children: ReactNode }) {
         .from("company_settings")
         .select("*")
         .limit(1)
-        .single();
+        .maybeSingle();
       return data;
     },
   });
