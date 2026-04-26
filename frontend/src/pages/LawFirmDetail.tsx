@@ -352,7 +352,9 @@ export default function LawFirmDetail() {
                 defaultLawFirmId={firm.id}
                 onSuccess={(newId) => {
                   setCreateContractOpen(false);
-                  if (newId) navigate(`/contracts/${newId}`);
+                  // Drop straight into the field editor — that's the
+                  // next step the user actually has to do.
+                  if (newId) navigate(`/contracts/${newId}/fields?new=1`);
                 }}
               />
             </DialogContent>

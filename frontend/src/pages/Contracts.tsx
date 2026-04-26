@@ -216,7 +216,10 @@ export default function Contracts() {
                 <DialogHeader><DialogTitle>Create Contract</DialogTitle></DialogHeader>
                 <ContractForm onSuccess={(newId) => {
                   setShowForm(false);
-                  if (newId) navigate(`/contracts/${newId}`);
+                  // Drop the user straight into the field editor so they
+                  // place signing fields before sending — no extra hop
+                  // through the contract detail page.
+                  if (newId) navigate(`/contracts/${newId}/fields?new=1`);
                 }} />
               </DialogContent>
             </Dialog>

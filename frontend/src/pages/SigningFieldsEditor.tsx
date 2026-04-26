@@ -106,6 +106,9 @@ export default function SigningFieldsEditor() {
   const fieldsTable = entity === "contract" ? "contract_signing_fields" : "template_signing_fields";
   const fkColumn = entity === "contract" ? "contract_id" : "template_id";
   const backLink = entity === "contract" ? `/contracts/${entityId}` : `/document-templates/${entityId}`;
+  // ?new=1 means we just landed here right after the contract was created.
+  // Show a banner so the user understands this is step 2 of a 2-step flow.
+  const isJustCreated = entity === "contract" && new URLSearchParams(location.search).get("new") === "1";
   const entityQueryKey = entity === "contract" ? ["contract-for-fields", entityId] : ["document-template", entityId];
   const fieldsQueryKey = entity === "contract" ? ["contract-signing-fields", entityId] : ["template-signing-fields", entityId];
 
@@ -327,6 +330,11 @@ export default function SigningFieldsEditor() {
       toast.success(`Saved ${fields.length} signing field(s)`);
       setDirty(false);
       qc.invalidateQueries({ queryKey: fieldsQueryKey });
+      // If we got here from "Create Contract", continue back to the contract
+      // page so the user can immediately Send for E-Signature.
+      if (isJustCreated) {
+        navigate(backLink);
+      }
     } catch (err: any) {
       toast.error(err.message || "Failed to save");
     } finally {
@@ -575,6 +583,24 @@ export default function SigningFieldsEditor() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)]">
+      {/* ─── JUST-CREATED BANNER ─── */}
+      {isJustCreated && (
+        <div className="bg-primary/10 border-b border-primary/30 px-4 py-2.5 shrink-0">
+          <div className="flex items-center gap-3 max-w-5xl mx-auto">
+            <div className="h-6 w-6 rounded-full bg-primary/20 text-primary text-sm font-semibold flex items-center justify-center shrink-0">2</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">Place where the recipient should fill</p>
+              <p className="text-xs text-muted-foreground">
+                Default fields are already on the document. Drag to move, resize from the corners, or add more from the toolbar — then click <span className="font-medium">Save Fields</span>.
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => navigate(backLink)}>
+              Skip — use defaults
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ─── TOOLBAR ─── */}
       <div className="border-b border-border bg-card px-4 py-2 shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -650,9 +676,20 @@ export default function SigningFieldsEditor() {
                 </AlertDialogContent>
               </AlertDialog>
             )}
-            <Button size="sm" onClick={handleSave} disabled={saving || !dirty}>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (isJustCreated && !dirty) {
+                  // Defaults are fine — just continue to the contract.
+                  navigate(backLink);
+                } else {
+                  handleSave();
+                }
+              }}
+              disabled={saving || (!dirty && !isJustCreated)}
+            >
               {saving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-              Save Fields
+              {isJustCreated && !dirty ? "Continue" : "Save Fields"}
             </Button>
           </div>
         </div>

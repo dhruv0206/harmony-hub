@@ -287,7 +287,10 @@ export default function ProviderDetail() {
                   setContractFormOpen(false);
                   queryClient.invalidateQueries({ queryKey: ["provider-contracts", id] });
                   queryClient.invalidateQueries({ queryKey: ["v-contract-list"] });
-                  if (newId) navigate(`/contracts/${newId}`);
+                  // Send the user straight to the signing-fields editor
+                  // so the next step (where the recipient signs) is the
+                  // visible next thing, not an extra click away.
+                  if (newId) navigate(`/contracts/${newId}/fields?new=1`);
                 }}
               />
             </DialogContent>
