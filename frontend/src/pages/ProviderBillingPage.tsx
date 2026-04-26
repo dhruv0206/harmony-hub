@@ -49,7 +49,7 @@ export default function ProviderBillingPage() {
   const [invoiceFilter, setInvoiceFilter] = useState("all");
 
   // Get provider record for current user
-  const { data: provider } = useQuery({
+  const { data: provider, isLoading: providerLoading } = useQuery({
     queryKey: ["my-provider-record"],
     queryFn: async () => {
       const { data: profile } = await supabase
@@ -224,10 +224,28 @@ export default function ProviderBillingPage() {
 
   const locTotal = locationBreakdown.reduce((s: number, l: any) => s + l.lineTotal, 0);
 
-  if (!provider) {
+  if (providerLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
         <p>Loading billing information…</p>
+      </div>
+    );
+  }
+
+  if (!provider) {
+    return (
+      <div className="space-y-6 max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold">Billing</h1>
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground space-y-2">
+            <CreditCard className="h-10 w-10 mx-auto text-muted-foreground/60" />
+            <p className="font-medium text-foreground">No billing record found</p>
+            <p className="text-sm">
+              Your account isn't linked to a provider profile yet. Please contact your account
+              representative to set up billing.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
