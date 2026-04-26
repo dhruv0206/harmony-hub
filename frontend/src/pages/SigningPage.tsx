@@ -700,6 +700,12 @@ export default function SigningPage() {
         await supabase.from("provider_documents").update({ status: "signed", signed_at: now }).eq("id", providerDocumentId);
       }
 
+      // Roll the contract forward to "signed" so the admin UI reflects what
+      // the recipient just did. Counter-sign (if applicable) flips it to active.
+      if (sigRequest!.contract_id) {
+        await supabase.from("contracts").update({ status: "signed" }).eq("id", sigRequest!.contract_id);
+      }
+
       await supabase.from("signature_audit_log").insert({
         signature_request_id: requestId!, action: "signed" as any,
         actor_id: user?.id, ip_address: "client", user_agent: navigator.userAgent,
@@ -743,7 +749,7 @@ export default function SigningPage() {
                 user_id: providerProfiles[0].id,
                 title: "Next Document Ready",
                 message: `Your next document "${(nextDoc as any).document_templates?.name}" is ready for review.`,
-                type: "info", link: "/dashboard",
+                type: "info", link: "/",
               });
             }
           }
@@ -1559,7 +1565,7 @@ function SigningComplete({ requestId, remainingDocs }: { requestId: string; rema
             ? "/my-documents"
             : role === "law_firm"
               ? "/lf/documents"
-              : "/dashboard";
+              : "/";
         const returnLabel = !user
           ? "You may close this window"
           : role === "provider" || role === "law_firm"
