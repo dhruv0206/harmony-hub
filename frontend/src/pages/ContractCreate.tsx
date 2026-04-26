@@ -549,6 +549,10 @@ export default function ContractCreate() {
                                 x: (field.x_position / 100) * pageDims.w,
                                 y: (field.y_position / 100) * pageDims.h,
                               }}
+                              // Tell react-rnd which child elements should NOT
+                              // start a drag — without this the close button is
+                              // swallowed by the drag-start handler.
+                              cancel=".field-delete-btn"
                               onDragStart={(e) => { e.stopPropagation(); setSelectedFieldId(field.id); }}
                               onDragStop={(_e, d) => {
                                 updateField(field.id, {
@@ -579,8 +583,11 @@ export default function ContractCreate() {
                                 <span className="truncate px-1">{field.field_label}</span>
                                 {isSelected && (
                                   <button
+                                    type="button"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onPointerDown={(e) => e.stopPropagation()}
                                     onClick={(e) => { e.stopPropagation(); removeField(field.id); }}
-                                    className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs"
+                                    className="field-delete-btn absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs hover:scale-110 transition-transform z-10"
                                     aria-label="Delete field"
                                   >
                                     <X className="h-3 w-3" />
