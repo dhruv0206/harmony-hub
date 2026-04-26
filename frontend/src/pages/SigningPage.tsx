@@ -174,7 +174,7 @@ export default function SigningPage() {
   const recipientEmail: string | undefined =
     (sigRequest?.providers as any)?.contact_email
     || (sigRequest as any)?.law_firms?.contact_email;
-  const { data: savedSignature } = useQuery({
+  const { data: profileSavedSignature } = useQuery({
     queryKey: ["recipient-saved-signature", recipientEmail],
     enabled: !!recipientEmail,
     queryFn: async () => {
@@ -499,7 +499,7 @@ export default function SigningPage() {
     // Default to "Use saved" if the recipient has one — saves a click.
     // Initials are typically distinct from a full signature, so even a saved
     // signature won't be auto-suggested for initials fields.
-    setSigMode(savedSignature && type === "signature" ? "saved" : "draw");
+    setSigMode(profileSavedSignature && type === "signature" ? "saved" : "draw");
     setTypedSig("");
     setSigModalOpen(true);
   };
@@ -508,11 +508,11 @@ export default function SigningPage() {
     if (!sigModalFieldId) return;
     let dataUrl = "";
     if (sigMode === "saved") {
-      if (!savedSignature) {
+      if (!profileSavedSignature) {
         toast.error("No saved signature on file");
         return;
       }
-      dataUrl = savedSignature;
+      dataUrl = profileSavedSignature;
     } else if (sigMode === "draw") {
       if (!sigPadRef.current || sigPadRef.current.isEmpty()) {
         toast.error("Please draw your signature");
@@ -1197,7 +1197,7 @@ export default function SigningPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="flex gap-2 flex-wrap">
-              {savedSignature && sigModalType === "signature" && (
+              {profileSavedSignature && sigModalType === "signature" && (
                 <Button variant={sigMode === "saved" ? "default" : "outline"} size="sm" onClick={() => setSigMode("saved")}>
                   Use saved
                 </Button>
@@ -1208,7 +1208,7 @@ export default function SigningPage() {
             {sigMode === "saved" ? (
               <div className="border-2 border-dashed border-primary/30 rounded-lg bg-white p-4 flex flex-col items-center gap-2">
                 <p className="text-xs text-muted-foreground">Your signature on file</p>
-                <img src={savedSignature!} alt="Saved signature" className="max-h-32" />
+                <img src={profileSavedSignature!} alt="Saved signature" className="max-h-32" />
               </div>
             ) : sigMode === "draw" ? (
               <div>
@@ -1251,7 +1251,7 @@ export default function SigningPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSigModalOpen(false)}>Cancel</Button>
-            <Button onClick={applySignature} disabled={(sigMode === "type" && !typedSig.trim()) || (sigMode === "saved" && !savedSignature)}>Apply</Button>
+            <Button onClick={applySignature} disabled={(sigMode === "type" && !typedSig.trim()) || (sigMode === "saved" && !profileSavedSignature)}>Apply</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
