@@ -68,3 +68,6 @@ htmlcov/
 *.seed
 tmp/
 temp/
+
+# Internal / not for public repo
+DOCUSIGN_PARITY_REPORT.md
