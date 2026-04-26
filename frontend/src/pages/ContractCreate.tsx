@@ -760,13 +760,19 @@ export default function ContractCreate() {
                               }}
                               onClick={(e: any) => { e.stopPropagation(); setSelectedFieldId(field.id); }}
                             >
-                              <div className="w-full h-full flex items-center justify-center text-xs font-medium relative" style={{ color: colors.border }}>
+                              <div
+                                className="w-full h-full flex items-center justify-center text-xs font-medium relative"
+                                style={{ color: colors.border, pointerEvents: "none" }}
+                              >
                                 {/* Sign-now preview: render the admin's saved
                                     signature image inline for admin-assigned
                                     sig/initial fields, today's date for date
-                                    fields. The recipient will see the same. */}
+                                    fields. pointer-events:none on this wrapper
+                                    so child img/spans don't intercept the
+                                    drag handler — only the X button (below)
+                                    explicitly re-enables pointer events. */}
                                 {signingMode === "sign_now" && field.assigned_to === "admin" && (field.field_type === "signature" || field.field_type === "initials") && adminSavedSignature ? (
-                                  <img src={adminSavedSignature} alt="Sender signature" className="max-w-full max-h-full object-contain" />
+                                  <img src={adminSavedSignature} alt="Sender signature" className="max-w-full max-h-full object-contain" draggable={false} />
                                 ) : signingMode === "sign_now" && field.assigned_to === "admin" && field.field_type === "date" ? (
                                   <span className="px-1 text-foreground">{new Date().toLocaleDateString()}</span>
                                 ) : signingMode === "sign_now" && field.assigned_to === "admin" && field.field_type === "name" ? (
@@ -785,6 +791,7 @@ export default function ContractCreate() {
                                     onClick={(e) => { e.stopPropagation(); removeField(field.id); }}
                                     className="field-delete-btn absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs hover:scale-110 transition-transform z-10"
                                     aria-label="Delete field"
+                                    style={{ pointerEvents: "auto" }}
                                   >
                                     <X className="h-3 w-3" />
                                   </button>
