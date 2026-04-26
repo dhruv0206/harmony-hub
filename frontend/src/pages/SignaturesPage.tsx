@@ -46,7 +46,7 @@ export default function SignaturesPage() {
     queryFn: async () => {
       let q = supabase
         .from("signature_requests")
-        .select("*, providers(business_name, contact_email), contracts(contract_type, deal_value), profiles!signature_requests_requested_by_fkey(full_name)", { count: "exact" })
+        .select("*, providers(business_name, contact_email), law_firms(firm_name, contact_email), contracts(contract_type, deal_value), profiles!signature_requests_requested_by_fkey(full_name)", { count: "exact" })
         .order("created_at", { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
       if (statusFilter !== "all" && statusFilter !== "expiring_soon") q = q.eq("status", statusFilter as any);
@@ -197,7 +197,10 @@ export default function SignaturesPage() {
     let list = [...requests];
     if (search) {
       const s = search.toLowerCase();
-      list = list.filter(r => r.providers?.business_name?.toLowerCase().includes(s));
+      list = list.filter(r => {
+        const name = (r as any).providers?.business_name || (r as any).law_firms?.firm_name || "";
+        return name.toLowerCase().includes(s);
+      });
     }
     if (statusFilter === "expiring_soon") {
       const now = Date.now();
@@ -304,7 +307,7 @@ export default function SignaturesPage() {
             <CardContent className="p-4 flex gap-3 items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search by provider..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+                <Input placeholder="Search by recipient..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-44"><SelectValue placeholder="Status" /></SelectTrigger>
@@ -326,7 +329,7 @@ export default function SignaturesPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Provider</TableHead>
+                    <TableHead>Recipient</TableHead>
                     <TableHead>Document</TableHead>
                     <TableHead>Package</TableHead>
                     <TableHead>Order</TableHead>
@@ -349,7 +352,12 @@ export default function SignaturesPage() {
 
                     return (
                       <TableRow key={r.id}>
-                        <TableCell className="font-medium">{r.providers?.business_name || "—"}</TableCell>
+                        <TableCell className="font-medium">
+                          {(r as any).providers?.business_name || (r as any).law_firms?.firm_name || "—"}
+                          {(r as any).law_firms?.firm_name && !(r as any).providers?.business_name && (
+                            <Badge variant="outline" className="ml-2 text-[10px]">Law Firm</Badge>
+                          )}
+                        </TableCell>
                         <TableCell>
                           {docTemplate ? (
                             <div>
@@ -419,7 +427,7 @@ export default function SignaturesPage() {
       <Dialog open={!!auditOpen} onOpenChange={() => setAuditOpen(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Audit Trail — {auditRequest?.providers?.business_name}</DialogTitle>
+            <DialogTitle>Audit Trail — {(auditRequest as any)?.providers?.business_name || (auditRequest as any)?.law_firms?.firm_name || "—"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             {signedDoc && (
