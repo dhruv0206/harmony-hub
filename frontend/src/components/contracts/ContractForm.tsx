@@ -148,6 +148,12 @@ export default function ContractForm({ contractId, defaultProviderId, defaultLaw
       if (renewalDate && startDate && new Date(renewalDate) < new Date(startDate)) {
         throw new Error("Renewal date must be on or after the start date.");
       }
+      // Require a PDF so the contract is actually signable. On edits the
+      // existing documentUrl satisfies this — only block when there's
+      // nothing attached AND no new file pending.
+      if (!pendingFile && !documentUrl) {
+        throw new Error("Please attach a contract PDF before saving.");
+      }
       // PDF size cap so we don't blow out client memory on react-pdf rendering.
       if (pendingFile && pendingFile.size > 25 * 1024 * 1024) {
         throw new Error("PDF is over 25 MB. Please upload a smaller file.");
@@ -349,11 +355,21 @@ export default function ContractForm({ contractId, defaultProviderId, defaultLaw
 
       <Button
         onClick={() => mutation.mutate()}
-        disabled={(entityKind === "provider" ? !providerId : !lawFirmId) || mutation.isPending || uploading}
+        disabled={
+          (entityKind === "provider" ? !providerId : !lawFirmId) ||
+          mutation.isPending ||
+          uploading ||
+          (!pendingFile && !documentUrl)
+        }
         className="w-full"
       >
         {uploading ? "Uploading PDF..." : mutation.isPending ? "Saving..." : contractId ? "Update Contract" : "Create Contract"}
       </Button>
+      {!pendingFile && !documentUrl && (
+        <p className="text-xs text-muted-foreground -mt-2 text-center">
+          A contract PDF is required.
+        </p>
+      )}
     </div>
   );
 }
