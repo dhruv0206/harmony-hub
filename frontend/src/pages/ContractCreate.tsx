@@ -336,21 +336,41 @@ export default function ContractCreate() {
       //    doesn't see duplicate signature boxes.
       await supabase.from("contract_signing_fields").delete().eq("contract_id", created.id);
 
+      // Today's date as the admin's pre-applied date when sign_now mode is on.
+      const todayStr = new Date().toLocaleDateString();
+
       // Insert all the placed signing fields against the new contract.
+      // For "sign_now" mode, pre-fill admin-assigned signature/initials with
+      // the admin's saved signature image, and admin-assigned date fields
+      // with today's date — these become read-only locked fields the
+      // recipient sees as already signed.
       if (fields.length > 0) {
-        const rows = fields.map((f, i) => ({
-          contract_id: created.id,
-          field_type: f.field_type,
-          field_label: f.field_label,
-          assigned_to: f.assigned_to,
-          page_number: f.page_number,
-          x_position: f.x_position,
-          y_position: f.y_position,
-          width: f.width,
-          height: f.height,
-          is_required: f.is_required,
-          display_order: i,
-        }));
+        const rows = fields.map((f, i) => {
+          let prefilled_value: string | null = null;
+          if (signingMode === "sign_now" && f.assigned_to === "admin") {
+            if ((f.field_type === "signature" || f.field_type === "initials") && adminSavedSignature) {
+              prefilled_value = adminSavedSignature;
+            } else if (f.field_type === "date") {
+              prefilled_value = todayStr;
+            } else if (f.field_type === "name") {
+              prefilled_value = (adminProfile as any)?.full_name || null;
+            }
+          }
+          return {
+            contract_id: created.id,
+            field_type: f.field_type,
+            field_label: f.field_label,
+            assigned_to: f.assigned_to,
+            page_number: f.page_number,
+            x_position: f.x_position,
+            y_position: f.y_position,
+            width: f.width,
+            height: f.height,
+            is_required: f.is_required,
+            display_order: i,
+            prefilled_value,
+          };
+        });
         const { error: fErr } = await supabase.from("contract_signing_fields").insert(rows as any);
         if (fErr) throw fErr;
       }
@@ -741,8 +761,22 @@ export default function ContractCreate() {
                               onClick={(e: any) => { e.stopPropagation(); setSelectedFieldId(field.id); }}
                             >
                               <div className="w-full h-full flex items-center justify-center text-xs font-medium relative" style={{ color: colors.border }}>
-                                <span className="mr-1">{FIELD_ICON[field.field_type]}</span>
-                                <span className="truncate px-1">{field.field_label}</span>
+                                {/* Sign-now preview: render the admin's saved
+                                    signature image inline for admin-assigned
+                                    sig/initial fields, today's date for date
+                                    fields. The recipient will see the same. */}
+                                {signingMode === "sign_now" && field.assigned_to === "admin" && (field.field_type === "signature" || field.field_type === "initials") && adminSavedSignature ? (
+                                  <img src={adminSavedSignature} alt="Sender signature" className="max-w-full max-h-full object-contain" />
+                                ) : signingMode === "sign_now" && field.assigned_to === "admin" && field.field_type === "date" ? (
+                                  <span className="px-1 text-foreground">{new Date().toLocaleDateString()}</span>
+                                ) : signingMode === "sign_now" && field.assigned_to === "admin" && field.field_type === "name" ? (
+                                  <span className="truncate px-1 text-foreground">{(adminProfile as any)?.full_name || ""}</span>
+                                ) : (
+                                  <>
+                                    <span className="mr-1">{FIELD_ICON[field.field_type]}</span>
+                                    <span className="truncate px-1">{field.field_label}</span>
+                                  </>
+                                )}
                                 {isSelected && (
                                   <button
                                     type="button"

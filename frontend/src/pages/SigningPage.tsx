@@ -222,6 +222,15 @@ export default function SigningPage() {
     return src.filter(f => f.assigned_to === "provider").sort((a, b) => a.display_order - b.display_order);
   }, [signingFields, contractFields]);
 
+  // Admin/sender fields with a prefilled_value (set when admin chose
+  // "I sign now" at create time). These render as read-only locked on the
+  // recipient's signing page so they see the doc has already been signed
+  // by the sender.
+  const senderPreSignedFields = useMemo(() => {
+    const src = (signingFields && signingFields.length > 0) ? signingFields : (contractFields || []);
+    return src.filter((f: any) => f.assigned_to === "admin" && f.prefilled_value);
+  }, [signingFields, contractFields]);
+
   const hasFields = providerFields.length > 0;
 
   // Initialize auto-fill fields. DocuSign behavior: Date Signed, Name, Email,
@@ -933,11 +942,21 @@ export default function SigningPage() {
             </div>
           )}
 
-          {/* Document with fields */}
+          {senderPreSignedFields.length > 0 && (
+            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3 flex items-center gap-2 text-sm">
+              <span className="text-emerald-700 dark:text-emerald-400">
+                ✓ Already signed by the sender. Your signature is required below.
+              </span>
+            </div>
+          )}
+
+          {/* Document with fields. We pass providerFields plus any sender
+              pre-signed fields so the recipient sees the doc as it stands
+              today — their fields interactive, sender's fields locked. */}
           {templateFileUrl && effectiveFileType === "pdf" && hasFields ? (
             <FieldAwareDocViewer
               fileUrl={templateFileUrl}
-              fields={providerFields}
+              fields={[...providerFields, ...senderPreSignedFields]}
               fieldValues={fieldValues}
               onFieldClick={(field) => {
                 if (field.field_type === "signature" || field.field_type === "initials") {
@@ -1356,10 +1375,16 @@ function FieldOverlay({
   const w = (field.width / 100) * pageWidth;
   const h = (field.height / 100) * pageHeight;
 
-  const isFilled = value && value.value.trim() !== "" && (field.field_type !== "checkbox" || value.value === "true");
+  // Sender pre-signed field: admin-assigned with a prefilled_value. Renders
+  // read-only with the sender's signature/value already shown — recipient
+  // can't click or edit.
+  const senderPreSigned = field.assigned_to === "admin" && (field as any).prefilled_value;
+  const isFilled = senderPreSigned || (value && value.value.trim() !== "" && (field.field_type !== "checkbox" || value.value === "true"));
   const isInvalid = value && !value.valid;
 
-  const borderClass = isFilled
+  const borderClass = senderPreSigned
+    ? "border-emerald-500/60 bg-emerald-500/5"
+    : isFilled
     ? "border-green-500 bg-green-500/5"
     : field.is_required
       ? "border-red-400 border-dashed bg-red-500/5"
@@ -1375,19 +1400,20 @@ function FieldOverlay({
     return (
       <div
         id={`field-${field.id}`}
-        className={`border-2 rounded cursor-pointer flex flex-col items-center justify-center transition-all hover:shadow-md ${borderClass}`}
+        className={`border-2 rounded ${senderPreSigned ? "cursor-default" : "cursor-pointer"} flex flex-col items-center justify-center transition-all ${senderPreSigned ? "" : "hover:shadow-md"} ${borderClass}`}
         style={style}
-        onClick={onClick}
-        tabIndex={field.display_order}
+        onClick={senderPreSigned ? undefined : onClick}
+        tabIndex={senderPreSigned ? -1 : field.display_order}
       >
-        {/* Field label so the recipient can tell two adjacent boxes apart
-            (e.g. "Provider Signature" vs "Witness Signature") */}
+        {/* Field label so the recipient can tell two adjacent boxes apart */}
         {field.field_label && (
           <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 leading-none mb-0.5 truncate max-w-full px-1">
-            {field.field_label}
+            {senderPreSigned ? `Signed by sender — ${field.field_label}` : field.field_label}
           </span>
         )}
-        {value?.value ? (
+        {senderPreSigned ? (
+          <img src={(field as any).prefilled_value} alt="Sender signature" className="max-w-full max-h-full object-contain p-0.5" />
+        ) : value?.value ? (
           <img src={value.value} alt={field.field_type} className="max-w-full max-h-full object-contain p-0.5" />
         ) : (
           <span className="text-xs text-muted-foreground font-medium">
@@ -1419,7 +1445,11 @@ function FieldOverlay({
   if (field.field_type === "date") {
     return (
       <div id={`field-${field.id}`} className={`border-b-2 ${borderClass} rounded-none`} style={style}>
-        {field.auto_fill_date ? (
+        {senderPreSigned ? (
+          <span className="text-xs px-1 leading-none text-foreground" style={{ lineHeight: `${h}px` }}>
+            {(field as any).prefilled_value}
+          </span>
+        ) : field.auto_fill_date ? (
           <span className="text-xs px-1 leading-none" style={{ lineHeight: `${h}px` }}>
             {value?.value || new Date().toLocaleDateString()}
           </span>
@@ -1446,6 +1476,13 @@ function FieldOverlay({
     field.field_type === "title"
   ) {
     const hasAutoFill = !!value?.value;
+    if (senderPreSigned) {
+      return (
+        <div id={`field-${field.id}`} style={style} className={`flex items-center border-b-2 ${borderClass} rounded-none`}>
+          <span className="text-xs px-1 truncate text-foreground">{(field as any).prefilled_value}</span>
+        </div>
+      );
+    }
     return (
       <div id={`field-${field.id}`} style={style} className="relative">
         <input
