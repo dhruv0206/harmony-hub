@@ -409,7 +409,7 @@ export default function CallQueue() {
               <div>
                 <h1 className="text-xl font-bold text-foreground">Call Queue</h1>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <Select value={campaignId || ""} onValueChange={v => navigate(`/call-queue/${v}`)}>
+                  <Select value={campaignId || ""} onValueChange={v => navigate(`/campaigns/${v}/queue`)}>
                     <SelectTrigger className="h-7 text-xs w-auto border-none p-0 shadow-none text-muted-foreground hover:text-foreground">
                       <SelectValue>{campaign?.name || "Select campaign"}</SelectValue>
                     </SelectTrigger>

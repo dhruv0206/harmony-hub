@@ -16,7 +16,7 @@ export default function ProviderTraining() {
     queryKey: ["my-provider-for-training", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data: profile } = await supabase.from("profiles").select("email").eq("id", user!.id).single();
+      const { data: profile } = await supabase.from("profiles").select("email").eq("id", user!.id).maybeSingle();
       if (!profile?.email) return null;
       const { data } = await supabase.from("providers").select("id").eq("contact_email", profile.email).maybeSingle();
       return data;

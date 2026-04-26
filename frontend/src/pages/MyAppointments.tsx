@@ -22,16 +22,33 @@ export default function MyAppointments() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
+  // Resolve the provider record for the current user so we can scope events
+  // by provider_id (or attendee). Without this, anyone in `provider` role
+  // could see every appointment in the system.
+  const { data: myProvider } = useQuery({
+    queryKey: ["my-provider-for-appointments", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data: profile } = await supabase
+        .from("profiles").select("email").eq("id", user!.id).maybeSingle();
+      if (!profile?.email) return null;
+      const { data: providers } = await supabase
+        .from("providers").select("id").eq("contact_email", profile.email).limit(1);
+      return providers?.[0] || null;
+    },
+  });
+
   const { data: events = [] } = useQuery({
-    queryKey: ["my-appointments"],
+    queryKey: ["my-appointments", user?.id, myProvider?.id],
+    enabled: !!user && !!myProvider?.id,
     queryFn: async () => {
       const { data } = await supabase
         .from("calendar_events")
         .select("*, profiles!calendar_events_host_id_fkey(full_name)")
+        .or(`provider_id.eq.${myProvider!.id},attendee_ids.cs.{${user!.id}}`)
         .order("start_time", { ascending: true });
       return data ?? [];
     },
-    enabled: !!user,
   });
 
   const confirmMutation = useMutation({

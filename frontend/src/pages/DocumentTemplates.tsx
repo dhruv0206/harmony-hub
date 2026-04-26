@@ -343,15 +343,15 @@ function QuickUploadModal({
         .upload(path, file, { upsert: true });
       if (uploadErr) throw uploadErr;
 
-      const { data: urlData } = supabase.storage.from("document-templates").getPublicUrl(path);
-
+      // Store the storage path (not a public URL). Readers resolve a signed
+      // URL on demand — works whether the bucket is public or private.
       const { data, error } = await supabase
         .from("document_templates")
         .insert({
           name,
           short_code: shortCode,
           document_type: docType,
-          file_url: urlData.publicUrl,
+          file_url: path,
           file_type: ext === "docx" ? "docx" : "pdf",
           version: 1,
           is_active: true,

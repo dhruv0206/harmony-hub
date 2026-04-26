@@ -29,7 +29,7 @@ export default function ProviderInvoiceView() {
         .from("invoices")
         .select("*, providers(business_name, contact_name, contact_email, address, city, state, zip_code)")
         .eq("id", id!)
-        .single();
+        .maybeSingle();
       return data;
     },
     enabled: !!id,

@@ -56,13 +56,13 @@ export default function ProviderBillingPage() {
         .from("profiles")
         .select("email")
         .eq("id", user!.id)
-        .single();
+        .maybeSingle();
       if (!profile?.email) return null;
       const { data } = await supabase
         .from("providers")
         .select("*")
         .eq("contact_email", profile.email)
-        .single();
+        .maybeSingle();
       return data;
     },
     enabled: !!user,
@@ -123,7 +123,7 @@ export default function ProviderBillingPage() {
         .from("ai_config")
         .select("settings")
         .eq("feature_name", "multi_location_discounts")
-        .single();
+        .maybeSingle();
       return (data?.settings as any)?.tiers ?? [];
     },
   });

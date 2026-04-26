@@ -136,7 +136,7 @@ export default function SigningFieldsEditor() {
   const { data: entityRow, isLoading: tplLoading } = useQuery({
     queryKey: entityQueryKey,
     queryFn: async () => {
-      const { data, error } = await (supabase as any).from(entityTable).select("*").eq("id", entityId!).single();
+      const { data, error } = await (supabase as any).from(entityTable).select("*").eq("id", entityId!).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -979,8 +979,8 @@ function OverlayRenderer({
             <Rnd
               key={field.id}
               size={{
-                width: (field.width_pct / 100) * pw,
-                height: (field.height_pct / 100) * ph,
+                width: (field.width / 100) * pw,
+                height: (field.height / 100) * ph,
               }}
               position={{
                 x: (field.x_position / 100) * pw,
@@ -995,8 +995,8 @@ function OverlayRenderer({
               }}
               onResizeStop={(_e, _dir, ref, _delta, position) => {
                 updateField(field.id, {
-                  width_pct: (ref.offsetWidth / pw) * 100,
-                  height_pct: (ref.offsetHeight / ph) * 100,
+                  width: (ref.offsetWidth / pw) * 100,
+                  height: (ref.offsetHeight / ph) * 100,
                   x_position: (position.x / pw) * 100,
                   y_position: (position.y / ph) * 100,
                 });

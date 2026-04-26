@@ -170,7 +170,7 @@ export default function SignaturesPage() {
 
       let count = 0;
       for (const r of targets) {
-        const email = (r.providers as any)?.contact_email;
+        const email = (r.providers as any)?.contact_email || (r as any).law_firms?.contact_email;
         if (!email) continue;
         const { data: prof } = await supabase.from("profiles").select("id").eq("email", email).maybeSingle();
         if (!prof) continue;

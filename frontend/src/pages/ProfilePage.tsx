@@ -21,7 +21,7 @@ export default function ProfilePage() {
   const { data: profile } = useQuery({
     queryKey: ["my-profile", user?.id],
     queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("*").eq("id", user!.id).single();
+      const { data } = await supabase.from("profiles").select("*").eq("id", user!.id).maybeSingle();
       return data;
     },
     enabled: !!user,
@@ -32,7 +32,7 @@ export default function ProfilePage() {
     queryKey: ["my-provider-profile"],
     queryFn: async () => {
       if (!profile?.email) return null;
-      const { data } = await supabase.from("providers").select("*").eq("contact_email", profile.email).single();
+      const { data } = await supabase.from("providers").select("*").eq("contact_email", profile.email).maybeSingle();
       return data;
     },
     enabled: isProvider && !!profile?.email,

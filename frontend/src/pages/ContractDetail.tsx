@@ -459,9 +459,9 @@ export default function ContractDetail() {
                 <p className="text-xs text-muted-foreground">Download the signed contract</p>
               </div>
             </div>
-            <Button variant="outline" size="sm" asChild>
-              <a href={contract.document_url} target="_blank" rel="noopener noreferrer">
-                <Download className="h-4 w-4 mr-2" />Download
+            <Button variant="outline" size="sm" asChild disabled={!contractPdfDisplay}>
+              <a href={contractPdfDisplay || "#"} target="_blank" rel="noopener noreferrer">
+                <Download className="h-4 w-4 mr-2" />{contractPdfDisplay ? "Download" : "Loading…"}
               </a>
             </Button>
           </CardContent>

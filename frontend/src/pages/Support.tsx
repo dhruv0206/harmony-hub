@@ -47,15 +47,6 @@ export default function Support() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ subject: "", description: "", category: "general" as string, priority: "medium" as string });
 
-  const { data: tickets, isLoading } = useQuery({
-    queryKey: ["my-support-tickets"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("support_tickets").select("*").order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
-    },
-  });
-
   const { data: myProvider } = useQuery({
     queryKey: ["my-provider-for-ai"],
     queryFn: async () => {
@@ -65,6 +56,22 @@ export default function Support() {
       if (!profile?.email) return null;
       const { data: providers } = await supabase.from("providers").select("*").eq("contact_email", profile.email).limit(1);
       return providers?.[0] || null;
+    },
+  });
+
+  // Provider-scoped tickets only — never query support_tickets without a
+  // provider_id filter or one provider can see tickets from every other one.
+  const { data: tickets, isLoading } = useQuery({
+    queryKey: ["my-support-tickets", myProvider?.id],
+    enabled: !!myProvider?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("support_tickets")
+        .select("*")
+        .eq("provider_id", myProvider!.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
     },
   });
 
