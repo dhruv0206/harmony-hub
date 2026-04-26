@@ -35,7 +35,7 @@ export async function fetchDiscountTiers(): Promise<DiscountTier[]> {
     .from("ai_config")
     .select("settings")
     .eq("feature_name", "multi_location_discounts")
-    .single();
+    .maybeSingle();
   return (data?.settings as any)?.tiers ?? [];
 }
 

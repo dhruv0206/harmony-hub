@@ -37,8 +37,8 @@ function LeadFinderCategorySettings() {
         .from("ai_config")
         .select("*")
         .eq("feature_name", "lead_finder_categories")
-        .single();
-      return data;
+        .maybeSingle();
+      return data ?? null;
     },
   });
 

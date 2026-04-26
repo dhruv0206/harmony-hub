@@ -64,8 +64,8 @@ export default function PricingCalculator() {
   const { data: discountConfig } = useQuery({
     queryKey: ["discount-schedule"],
     queryFn: async () => {
-      const { data } = await supabase.from("ai_config").select("*").eq("feature_name", "multi_location_discounts").single();
-      return data;
+      const { data } = await supabase.from("ai_config").select("*").eq("feature_name", "multi_location_discounts").maybeSingle();
+      return data ?? null;
     },
   });
 

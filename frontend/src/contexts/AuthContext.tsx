@@ -44,8 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // setTimeout(..., 0) and let `userDataLoaded` flip when it finishes.
   const fetchUserData = async (userId: string) => {
     const [roleRes, profileRes] = await Promise.all([
-      supabase.from("user_roles").select("role").eq("user_id", userId).single(),
-      supabase.from("profiles").select("full_name, email, avatar_url").eq("id", userId).single(),
+      supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle(),
+      supabase.from("profiles").select("full_name, email, avatar_url").eq("id", userId).maybeSingle(),
     ]);
     if (roleRes.data) setRole(roleRes.data.role);
     if (profileRes.data) setProfile(profileRes.data);

@@ -40,7 +40,7 @@ export function AIToneTab() {
   const { data: config } = useQuery({
     queryKey: ["ai-config-tone"],
     queryFn: async () => {
-      const { data } = await (supabase as any).from("ai_config").select("*").eq("feature_name", "tone_personality").single();
+      const { data } = await (supabase as any).from("ai_config").select("*").eq("feature_name", "tone_personality").maybeSingle();
       if (data) {
         setSelectedTone(data.settings?.style || "professional");
         setCustomPersona(data.settings?.custom_persona || "");

@@ -27,8 +27,8 @@ export default function NotificationPreferences() {
         .from("ai_config")
         .select("*")
         .eq("feature_name", "notification_preferences")
-        .single();
-      return data;
+        .maybeSingle();
+      return data ?? null;
     },
   });
 

@@ -100,7 +100,9 @@ export default function LeadFinder() {
         .select("settings")
         .eq("feature_name", "lead_finder_categories")
         .maybeSingle();
-      return (data?.settings as any)?.categories as string[] | undefined;
+      // React Query forbids returning undefined; fall back to null so empty
+      // ai_config row doesn't trigger a "Query data cannot be undefined" error.
+      return ((data?.settings as any)?.categories as string[] | undefined) ?? null;
     },
   });
 
