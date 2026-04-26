@@ -1106,7 +1106,7 @@ export default function SigningPage() {
                       <SignatureCanvas
                         ref={fallbackSigRef}
                         penColor="hsl(var(--foreground))"
-                        canvasProps={{ className: "w-full h-48 rounded-lg touch-none", style: { width: "100%", height: "192px" } }}
+                        canvasProps={{ className: "rounded-lg touch-none", width: 500, height: 192 }}
                       />
                     </div>
                     <div className="flex justify-end mt-2">
@@ -1174,7 +1174,10 @@ export default function SigningPage() {
             </div>
             {sigMode === "draw" ? (
               <div>
-                <div className="border-2 border-dashed border-primary/30 rounded-lg bg-white">
+                <div className="border-2 border-dashed border-primary/30 rounded-lg bg-white flex items-center justify-center p-2">
+                  {/* Canvas intrinsic width MUST match the CSS width or the
+                      drawing coordinates get mis-mapped (lines drift / no
+                      stroke). Don't add `style: { width: "100%" }` here. */}
                   <SignatureCanvas
                     ref={sigPadRef}
                     penColor="#1a1a1a"
@@ -1182,7 +1185,6 @@ export default function SigningPage() {
                       className: "rounded-lg touch-none",
                       width: sigModalType === "initials" ? 300 : 500,
                       height: sigModalType === "initials" ? 100 : 200,
-                      style: { width: "100%", height: sigModalType === "initials" ? "100px" : "200px" },
                     }}
                   />
                 </div>

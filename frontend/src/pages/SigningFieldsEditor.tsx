@@ -128,6 +128,11 @@ export default function SigningFieldsEditor() {
   const documentRef = useRef<HTMLDivElement>(null);
   const [documentHeight, setDocumentHeight] = useState(1056);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  // Bumped when react-pdf finishes rendering a page so overlays measure the
+  // (now-correct) page dimensions and re-render. Without this counter the
+  // overlay renderer reads 0×0 on first paint, returns null, and stays null
+  // because nothing else re-triggers it.
+  const [pageRenderTick, setPageRenderTick] = useState(0);
 
   // ── AI suggestions ──
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
@@ -729,9 +734,11 @@ export default function SigningFieldsEditor() {
                         activeFieldType={activeFieldType}
                         onClick={(e, el) => handleDocumentClick(e, pn, el)}
                       >
-                        <Page pageNumber={pn} width={816} renderTextLayer={false} renderAnnotationLayer={false} />
+                        <Page pageNumber={pn} width={816} renderTextLayer={false} renderAnnotationLayer={false}
+                          onRenderSuccess={() => setPageRenderTick(t => t + 1)} />
                         <OverlayRenderer fields={fields} pageNum={pn} pageRefs={pageRefs} selectedFieldId={selectedFieldId}
-                          setSelectedFieldId={setSelectedFieldId} updateField={updateField} removeField={removeField} />
+                          setSelectedFieldId={setSelectedFieldId} updateField={updateField} removeField={removeField}
+                          tick={pageRenderTick} />
                       </PageContainer>
                       <span className="text-[11px] text-muted-foreground mt-2">Page {pn} of {numPages}</span>
                     </div>
@@ -765,7 +772,8 @@ export default function SigningFieldsEditor() {
                   >
                     <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(docHtml) }} />
                     <OverlayRenderer fields={fields} pageNum={1} pageRefs={pageRefs} selectedFieldId={selectedFieldId}
-                      setSelectedFieldId={setSelectedFieldId} updateField={updateField} removeField={removeField} />
+                      setSelectedFieldId={setSelectedFieldId} updateField={updateField} removeField={removeField}
+                      tick={pageRenderTick} />
                   </div>
                   <span className="text-[11px] text-muted-foreground mt-2">Page 1 of 1</span>
                 </div>
@@ -989,6 +997,7 @@ function OverlayRenderer({
   setSelectedFieldId,
   updateField,
   removeField,
+  tick: _tick, // re-render trigger when the underlying PDF page finishes drawing
 }: {
   fields: SigningField[];
   pageNum: number;
@@ -997,6 +1006,7 @@ function OverlayRenderer({
   setSelectedFieldId: (id: string | null) => void;
   updateField: (id: string, u: Partial<SigningField>) => void;
   removeField: (id: string) => void;
+  tick?: number;
 }) {
   const container = pageRefs.current.get(pageNum);
   if (!container) return null;

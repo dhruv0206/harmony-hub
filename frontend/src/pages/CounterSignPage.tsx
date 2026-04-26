@@ -378,10 +378,10 @@ export default function CounterSignPage() {
 
               <div>
                 <Label className="text-xs text-muted-foreground mb-2 block">Draw Your Signature</Label>
-                <div className="border-2 border-dashed border-border rounded-lg overflow-hidden bg-background">
+                <div className="border-2 border-dashed border-border rounded-lg overflow-hidden bg-background flex items-center justify-center p-2">
                   <SignatureCanvas
                     ref={sigCanvas}
-                    canvasProps={{ className: "w-full h-32" }}
+                    canvasProps={{ className: "rounded touch-none", width: 500, height: 128 }}
                     penColor="black"
                   />
                 </div>
