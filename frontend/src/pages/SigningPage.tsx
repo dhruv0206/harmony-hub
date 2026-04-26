@@ -1375,11 +1375,18 @@ function FieldOverlay({
     return (
       <div
         id={`field-${field.id}`}
-        className={`border-2 rounded cursor-pointer flex items-center justify-center transition-all hover:shadow-md ${borderClass}`}
+        className={`border-2 rounded cursor-pointer flex flex-col items-center justify-center transition-all hover:shadow-md ${borderClass}`}
         style={style}
         onClick={onClick}
         tabIndex={field.display_order}
       >
+        {/* Field label so the recipient can tell two adjacent boxes apart
+            (e.g. "Provider Signature" vs "Witness Signature") */}
+        {field.field_label && (
+          <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 leading-none mb-0.5 truncate max-w-full px-1">
+            {field.field_label}
+          </span>
+        )}
         {value?.value ? (
           <img src={value.value} alt={field.field_type} className="max-w-full max-h-full object-contain p-0.5" />
         ) : (

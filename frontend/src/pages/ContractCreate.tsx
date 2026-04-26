@@ -329,7 +329,14 @@ export default function ContractCreate() {
       }).select("id").single();
       if (insErr) throw insErr;
 
-      // 3. Insert all the placed signing fields against the new contract.
+      // 3. There's a DB trigger (trg_contract_default_fields) that auto-inserts
+      //    a default "Provider Signature" + "Date" pair after every contract
+      //    insert that has a document_url. Since we always place our own
+      //    fields here, wipe the trigger-added defaults so the recipient
+      //    doesn't see duplicate signature boxes.
+      await supabase.from("contract_signing_fields").delete().eq("contract_id", created.id);
+
+      // Insert all the placed signing fields against the new contract.
       if (fields.length > 0) {
         const rows = fields.map((f, i) => ({
           contract_id: created.id,
