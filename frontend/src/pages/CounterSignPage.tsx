@@ -126,8 +126,25 @@ export default function CounterSignPage() {
     enabled: !!contractDoc?.document_url,
   });
 
-  const documentFileUrl = templateFileUrl || contractFileUrl;
-  const documentFileType = template?.file_type || (contractDoc?.document_url?.toLowerCase().endsWith(".docx") ? "docx" : "pdf");
+  // Show the recipient-signed PDF (baked at signing time) instead of the
+  // blank original — the admin needs to see what they're countersigning.
+  const finalDocPath = (sigRequest as any)?.final_document_url as string | null | undefined;
+  const { data: signedPdfUrl } = useQuery({
+    queryKey: ["counter-sign-final-pdf", finalDocPath],
+    queryFn: async () => {
+      if (!finalDocPath) return null;
+      if (finalDocPath.startsWith("http")) return finalDocPath;
+      const { data } = await supabase.storage.from("signatures").createSignedUrl(finalDocPath, 3600);
+      return data?.signedUrl || null;
+    },
+    enabled: !!finalDocPath,
+  });
+
+  const documentFileUrl = signedPdfUrl || templateFileUrl || contractFileUrl;
+  const documentFileType = signedPdfUrl
+    ? "pdf"
+    : template?.file_type || (contractDoc?.document_url?.toLowerCase().endsWith(".docx") ? "docx" : "pdf");
+  const showingSignedVersion = !!signedPdfUrl;
 
   // Fetch audit log for verification methods
   const { data: auditLogs } = useQuery({
@@ -306,7 +323,13 @@ export default function CounterSignPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <FileText className="h-4 w-4" /> Original Document
+                <FileText className="h-4 w-4" />
+                {showingSignedVersion ? "Recipient-Signed Document" : "Original Document"}
+                {showingSignedVersion && (
+                  <Badge variant="outline" className="text-[10px] border-emerald-600/40 text-emerald-600">
+                    Recipient signed
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
