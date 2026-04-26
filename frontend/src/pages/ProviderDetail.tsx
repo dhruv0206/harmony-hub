@@ -275,10 +275,10 @@ export default function ProviderDetail() {
               <Button onClick={() => updateStatus.mutate(newStatus)} disabled={!newStatus || newStatus === provider.status}>Update Status</Button>
             </DialogContent>
           </Dialog>
+          <Button size="sm" onClick={() => navigate(`/contracts/new?provider=${id}`)}>
+            <FileText className="mr-2 h-4 w-4" />Create Contract
+          </Button>
           <Dialog open={contractFormOpen} onOpenChange={setContractFormOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm"><FileText className="mr-2 h-4 w-4" />Create Contract</Button>
-            </DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader><DialogTitle>Create Contract</DialogTitle></DialogHeader>
               <ContractForm
@@ -287,10 +287,7 @@ export default function ProviderDetail() {
                   setContractFormOpen(false);
                   queryClient.invalidateQueries({ queryKey: ["provider-contracts", id] });
                   queryClient.invalidateQueries({ queryKey: ["v-contract-list"] });
-                  // Send the user straight to the signing-fields editor
-                  // so the next step (where the recipient signs) is the
-                  // visible next thing, not an extra click away.
-                  if (newId) navigate(`/contracts/${newId}/fields?new=1`);
+                  if (newId) navigate(`/contracts/${newId}`);
                 }}
               />
             </DialogContent>

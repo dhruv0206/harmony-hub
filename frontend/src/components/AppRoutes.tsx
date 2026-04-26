@@ -10,6 +10,7 @@ import NotFound from "@/pages/NotFound";
 const Providers = lazy(() => import("@/pages/Providers"));
 const ProviderDetail = lazy(() => import("@/pages/ProviderDetail"));
 const Contracts = lazy(() => import("@/pages/Contracts"));
+const ContractCreate = lazy(() => import("@/pages/ContractCreate"));
 const ContractDetail = lazy(() => import("@/pages/ContractDetail"));
 const ContractReviewPage = lazy(() => import("@/pages/ContractReviewPage"));
 const DealTypes = lazy(() => import("@/pages/DealTypes"));
@@ -92,6 +93,7 @@ export default function AppRoutes() {
       <Route path="/providers" element={<ProtectedRoute><RoleGuard roles={["admin", "sales_rep"]}><LazyPage><Providers /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/providers/:id" element={<ProtectedRoute><RoleGuard roles={["admin", "sales_rep"]}><LazyPage><ProviderDetail /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/contracts" element={<ProtectedRoute><LazyPage><Contracts /></LazyPage></ProtectedRoute>} />
+      <Route path="/contracts/new" element={<ProtectedRoute><RoleGuard roles={["admin", "sales_rep"]}><LazyPage><ContractCreate /></LazyPage></RoleGuard></ProtectedRoute>} />
       <Route path="/contracts/:id" element={<ProtectedRoute><LazyPage><ContractDetail /></LazyPage></ProtectedRoute>} />
       <Route path="/contracts/:id/review" element={<ProtectedRoute><LazyPage><ContractReviewPage /></LazyPage></ProtectedRoute>} />
       <Route path="/deal-types" element={<ProtectedRoute><RoleGuard roles={["admin"]}><LazyPage><DealTypes /></LazyPage></RoleGuard></ProtectedRoute>} />

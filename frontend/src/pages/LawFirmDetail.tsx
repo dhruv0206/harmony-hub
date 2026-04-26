@@ -342,23 +342,9 @@ export default function LawFirmDetail() {
           <Button variant="outline" size="sm" onClick={() => { setEditForm({ ...firm }); setEditOpen(true); }}>
             <Edit className="mr-2 h-4 w-4" />Edit
           </Button>
-          <Button size="sm" onClick={() => setCreateContractOpen(true)}>
+          <Button size="sm" onClick={() => navigate(`/contracts/new?lawfirm=${firm.id}`)}>
             <FileText className="mr-2 h-4 w-4" />Create Contract
           </Button>
-          <Dialog open={createContractOpen} onOpenChange={setCreateContractOpen}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader><DialogTitle>Create Contract for {firm.firm_name}</DialogTitle></DialogHeader>
-              <ContractForm
-                defaultLawFirmId={firm.id}
-                onSuccess={(newId) => {
-                  setCreateContractOpen(false);
-                  // Drop straight into the field editor — that's the
-                  // next step the user actually has to do.
-                  if (newId) navigate(`/contracts/${newId}/fields?new=1`);
-                }}
-              />
-            </DialogContent>
-          </Dialog>
           <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
             <DialogTrigger asChild><Button variant="outline" size="sm"><RefreshCw className="mr-2 h-4 w-4" />Change Status</Button></DialogTrigger>
             <DialogContent>

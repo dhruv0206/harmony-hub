@@ -208,21 +208,9 @@ export default function Contracts() {
             </Badge>
           )}
           {!isProvider && (
-            <Dialog open={showForm} onOpenChange={setShowForm}>
-              <DialogTrigger asChild>
-                <Button><Plus className="h-4 w-4 mr-2" />Create Contract</Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader><DialogTitle>Create Contract</DialogTitle></DialogHeader>
-                <ContractForm onSuccess={(newId) => {
-                  setShowForm(false);
-                  // Drop the user straight into the field editor so they
-                  // place signing fields before sending — no extra hop
-                  // through the contract detail page.
-                  if (newId) navigate(`/contracts/${newId}/fields?new=1`);
-                }} />
-              </DialogContent>
-            </Dialog>
+            <Button onClick={() => navigate("/contracts/new")}>
+              <Plus className="h-4 w-4 mr-2" />Create Contract
+            </Button>
           )}
         </div>
       </div>
