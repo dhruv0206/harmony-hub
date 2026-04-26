@@ -91,6 +91,21 @@ export default function ProfilePage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      // Validate inputs that the user can mess up.
+      if (form.phone && !/^[+()\-.\s\d]{7,}$/.test(form.phone)) {
+        throw new Error("Phone must be digits, spaces, dashes, or parentheses.");
+      }
+      const stateUpper = (form.state || "").trim().toUpperCase();
+      if (isProvider && stateUpper && !/^[A-Z]{2}$/.test(stateUpper)) {
+        throw new Error("State must be a 2-letter US code (e.g. GA).");
+      }
+      if (isProvider && form.zip_code && !/^\d{5}(-\d{4})?$/.test(form.zip_code)) {
+        throw new Error("ZIP must be 5 digits or 5+4 (e.g. 30309 or 30309-1234).");
+      }
+      if (isProvider && form.contact_phone && !/^[+()\-.\s\d]{7,}$/.test(form.contact_phone)) {
+        throw new Error("Contact phone format isn't valid.");
+      }
+
       // Update profile
       const { error: profileErr } = await supabase
         .from("profiles")
@@ -109,7 +124,7 @@ export default function ProfilePage() {
             address_line1: form.address_line1,
             address_line2: form.address_line2,
             city: form.city,
-            state: form.state,
+            state: stateUpper,
             zip_code: form.zip_code,
           })
           .eq("id", provider.id);
@@ -161,11 +176,11 @@ export default function ProfilePage() {
           </div>
           <div className="space-y-2">
             <Label>Full Name</Label>
-            <Input value={form.full_name} onChange={e => setForm({ ...form, full_name: e.target.value })} />
+            <Input maxLength={120} value={form.full_name} onChange={e => setForm({ ...form, full_name: e.target.value })} />
           </div>
           <div className="space-y-2">
             <Label>Phone</Label>
-            <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="(555) 123-4567" />
+            <Input type="tel" maxLength={30} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="(555) 123-4567" />
           </div>
         </CardContent>
       </Card>
@@ -190,7 +205,7 @@ export default function ProfilePage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Contact Phone</Label>
-                  <Input value={form.contact_phone} onChange={e => setForm({ ...form, contact_phone: e.target.value })} />
+                  <Input type="tel" maxLength={30} value={form.contact_phone} onChange={e => setForm({ ...form, contact_phone: e.target.value })} />
                 </div>
               </div>
 
@@ -230,11 +245,11 @@ export default function ProfilePage() {
                 </div>
                 <div className="space-y-2">
                   <Label>State</Label>
-                  <Input value={form.state} onChange={e => setForm({ ...form, state: e.target.value })} />
+                  <Input maxLength={2} value={form.state} onChange={e => setForm({ ...form, state: e.target.value.toUpperCase() })} placeholder="GA" />
                 </div>
                 <div className="space-y-2">
                   <Label>ZIP Code</Label>
-                  <Input value={form.zip_code} onChange={e => setForm({ ...form, zip_code: e.target.value })} />
+                  <Input maxLength={10} value={form.zip_code} onChange={e => setForm({ ...form, zip_code: e.target.value })} placeholder="30309" />
                 </div>
               </div>
             </CardContent>

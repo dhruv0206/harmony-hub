@@ -60,6 +60,19 @@ export default function LFProfile() {
 
   const updateFirm = useMutation({
     mutationFn: async () => {
+      if (!form.firm_name?.trim()) throw new Error("Firm name is required.");
+      if (form.contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contact_email)) {
+        throw new Error("Please enter a valid contact email or leave it blank.");
+      }
+      if (form.contact_phone && !/^[+()\-.\s\d]{7,}$/.test(form.contact_phone)) {
+        throw new Error("Phone format isn't valid.");
+      }
+      if (form.zip_code && !/^\d{5}(-\d{4})?$/.test(form.zip_code)) {
+        throw new Error("ZIP must be 5 digits or 5+4.");
+      }
+      if (form.website && !/^https?:\/\//.test(form.website)) {
+        throw new Error("Website must start with http:// or https://.");
+      }
       const { error } = await supabase.from("law_firms").update(form).eq("id", lawFirm!.id);
       if (error) throw error;
     },
@@ -73,6 +86,13 @@ export default function LFProfile() {
 
   const saveContact = useMutation({
     mutationFn: async () => {
+      if (!contactForm.name?.trim()) throw new Error("Name is required.");
+      if (contactForm.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactForm.email)) {
+        throw new Error("Please enter a valid email or leave it blank.");
+      }
+      if (contactForm.phone && !/^[+()\-.\s\d]{7,}$/.test(contactForm.phone)) {
+        throw new Error("Phone format isn't valid.");
+      }
       if (editingContactId) {
         const { error } = await supabase.from("law_firm_contacts").update(contactForm).eq("id", editingContactId);
         if (error) throw error;
@@ -146,8 +166,8 @@ export default function LFProfile() {
                 <div><Label>DBA</Label><Input value={form.dba_name || ""} onChange={e => setForm({ ...form, dba_name: e.target.value })} /></div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div><Label>Email</Label><Input value={form.contact_email || ""} onChange={e => setForm({ ...form, contact_email: e.target.value })} /></div>
-                <div><Label>Phone</Label><Input value={form.contact_phone || ""} onChange={e => setForm({ ...form, contact_phone: e.target.value })} /></div>
+                <div><Label>Email</Label><Input type="email" maxLength={120} value={form.contact_email || ""} onChange={e => setForm({ ...form, contact_email: e.target.value })} /></div>
+                <div><Label>Phone</Label><Input type="tel" maxLength={30} value={form.contact_phone || ""} onChange={e => setForm({ ...form, contact_phone: e.target.value })} /></div>
               </div>
               <div><Label>Address</Label><Input value={form.address_line1 || ""} onChange={e => setForm({ ...form, address_line1: e.target.value })} /></div>
               <div className="grid grid-cols-3 gap-4">
@@ -159,9 +179,9 @@ export default function LFProfile() {
                     <SelectContent>{US_STATES.map(s => <SelectItem key={s.abbr} value={s.abbr}>{s.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div><Label>ZIP</Label><Input value={form.zip_code || ""} onChange={e => setForm({ ...form, zip_code: e.target.value })} /></div>
+                <div><Label>ZIP</Label><Input maxLength={10} value={form.zip_code || ""} onChange={e => setForm({ ...form, zip_code: e.target.value })} placeholder="30309" /></div>
               </div>
-              <div><Label>Website</Label><Input value={form.website || ""} onChange={e => setForm({ ...form, website: e.target.value })} /></div>
+              <div><Label>Website</Label><Input type="url" maxLength={200} placeholder="https://example.com" value={form.website || ""} onChange={e => setForm({ ...form, website: e.target.value })} /></div>
 
               <div>
                 <Label>Practice Areas</Label>
@@ -272,7 +292,17 @@ export default function LFProfile() {
                           setContactForm({ name: c.name, title: c.title || "", email: c.email || "", phone: c.phone || "", is_primary: c.is_primary, is_signer: c.is_signer });
                           setContactOpen(true);
                         }}><Pencil className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="sm" onClick={() => deleteContact.mutate(c.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (window.confirm(`Remove "${c.name}" from your firm contacts?`)) {
+                              deleteContact.mutate(c.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -295,8 +325,8 @@ export default function LFProfile() {
               <div><Label>Title</Label><Input value={contactForm.title} onChange={e => setContactForm({ ...contactForm, title: e.target.value })} /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><Label>Email</Label><Input value={contactForm.email} onChange={e => setContactForm({ ...contactForm, email: e.target.value })} /></div>
-              <div><Label>Phone</Label><Input value={contactForm.phone} onChange={e => setContactForm({ ...contactForm, phone: e.target.value })} /></div>
+              <div><Label>Email</Label><Input type="email" maxLength={120} value={contactForm.email} onChange={e => setContactForm({ ...contactForm, email: e.target.value })} /></div>
+              <div><Label>Phone</Label><Input type="tel" maxLength={30} value={contactForm.phone} onChange={e => setContactForm({ ...contactForm, phone: e.target.value })} /></div>
             </div>
             <div className="flex gap-6">
               <div className="flex items-center gap-2">

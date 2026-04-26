@@ -208,7 +208,19 @@ export default function SettingsPage() {
                   <p className="text-xs text-muted-foreground">
                     The user will need to sign up with this email. Their role will be assigned automatically.
                   </p>
-                  <Button className="w-full" onClick={() => { toast.success(`Invitation ready for ${inviteEmail}`); setInviteOpen(false); setInviteEmail(""); }}>
+                  <Button
+                    className="w-full"
+                    disabled={!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail)}
+                    onClick={() => {
+                      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail)) {
+                        toast.error("Please enter a valid email address.");
+                        return;
+                      }
+                      toast.success(`Invitation ready for ${inviteEmail}`);
+                      setInviteOpen(false);
+                      setInviteEmail("");
+                    }}
+                  >
                     Send Invitation
                   </Button>
                 </div>
@@ -305,37 +317,6 @@ export default function SettingsPage() {
       {/* Lead Finder Categories */}
       <LeadFinderCategorySettings />
 
-      {/* Email Templates */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Mail className="h-5 w-5" />Email Templates</CardTitle>
-          <CardDescription>Configure email notifications — templates will use your brand logo and colors</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {[
-              { name: "Welcome Email", desc: "Sent when a new provider or law firm signs up" },
-              { name: "Document Sent", desc: "Notifies recipient that a document awaits their signature" },
-              { name: "Document Signed Confirmation", desc: "Confirms a document has been signed by the provider" },
-              { name: "Invoice Email", desc: "Sent with each new invoice, includes payment link" },
-              { name: "Payment Reminder", desc: "Sent at 7, 14, and 30 days past due" },
-              { name: "Onboarding Welcome", desc: "Welcome packet sent when onboarding begins" },
-              { name: "Password Reset", desc: "Standard password reset email with brand styling" },
-            ].map((t) => (
-              <div key={t.name} className="flex items-start gap-3 p-3 border rounded-lg">
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{t.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{t.desc}</p>
-                </div>
-                <Badge variant="secondary" className="shrink-0 text-xs">Coming Soon</Badge>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground mt-4">
-            Email integration coming soon. Templates will automatically use your uploaded logo and brand colors.
-          </p>
-        </CardContent>
-      </Card>
     </div>
   );
 }

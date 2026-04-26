@@ -89,6 +89,9 @@ export default function SendToProviderModal({
         .single();
       const templateVersion = tmpl?.version || 1;
 
+      if (!expirationDays || expirationDays < 1 || expirationDays > 90) {
+        throw new Error("Expiration must be between 1 and 90 days.");
+      }
       const expiresAt = addDays(new Date(), expirationDays).toISOString();
       const now = new Date().toISOString();
 

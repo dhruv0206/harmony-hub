@@ -109,10 +109,12 @@ export default function SignaturesPage() {
 
   const voidMutation = useMutation({
     mutationFn: async (id: string) => {
-      await supabase.from("signature_requests").update({ status: "voided" }).eq("id", id);
+      const { error } = await supabase.from("signature_requests").update({ status: "voided" }).eq("id", id);
+      if (error) throw error;
       await supabase.from("signature_audit_log").insert({ signature_request_id: id, action: "voided" as any });
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["signature-requests"] }); toast.success("Request voided"); },
+    onError: (e: any) => toast.error(e?.message || "Could not void request"),
   });
 
   // Reset a locked-out signing session: clear failed verifications, set status
@@ -388,8 +390,30 @@ export default function SignaturesPage() {
                                     <LinkIcon className="h-3.5 w-3.5" />
                                   </a>
                                 </Button>
-                                <Button variant="ghost" size="sm" title="Reset / unlock — clears failed verifications and copies a fresh link" onClick={() => resetMutation.mutate(r)}><RotateCcw className="h-3.5 w-3.5" /></Button>
-                                <Button variant="ghost" size="sm" title="Void this request" onClick={() => voidMutation.mutate(r.id)}><XCircle className="h-3.5 w-3.5 text-destructive" /></Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title="Reset / unlock — clears failed verifications and copies a fresh link"
+                                  onClick={() => {
+                                    if (window.confirm("Reset this signing session? This clears any failed verifications and copies a fresh link to your clipboard so you can re-share it.")) {
+                                      resetMutation.mutate(r);
+                                    }
+                                  }}
+                                >
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title="Void this request"
+                                  onClick={() => {
+                                    if (window.confirm("Void this signature request? The recipient won't be able to sign with the existing link.")) {
+                                      voidMutation.mutate(r.id);
+                                    }
+                                  }}
+                                >
+                                  <XCircle className="h-3.5 w-3.5 text-destructive" />
+                                </Button>
                               </>
                             )}
                           </div>

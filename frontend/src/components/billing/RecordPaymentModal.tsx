@@ -31,6 +31,11 @@ export default function RecordPaymentModal({ open, onOpenChange, invoiceId, prov
     mutationFn: async () => {
       const paymentAmt = parseFloat(amount);
       if (isNaN(paymentAmt) || paymentAmt <= 0) throw new Error("Invalid amount");
+      // Block over-payments at submit time, in case the user changed it
+      // after the field was prefilled with the remaining balance.
+      if (paymentAmt > remainingBalance + 0.005) {
+        throw new Error(`Amount can't exceed the remaining balance of $${remainingBalance.toFixed(2)}.`);
+      }
 
       const { error: pErr } = await supabase.from("payments").insert({
         invoice_id: invoiceId,
@@ -140,7 +145,7 @@ export default function RecordPaymentModal({ open, onOpenChange, invoiceId, prov
         <div className="space-y-4">
           <div>
             <Label>Amount</Label>
-            <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Input type="number" step="0.01" min={0.01} max={remainingBalance} value={amount} onChange={(e) => setAmount(e.target.value)} />
             <p className="text-xs text-muted-foreground mt-1">Remaining balance: ${remainingBalance.toFixed(2)}</p>
           </div>
           <div>

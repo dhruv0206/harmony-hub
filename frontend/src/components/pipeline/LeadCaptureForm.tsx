@@ -33,18 +33,33 @@ export default function LeadCaptureForm({ onSuccess, participantType = "provider
 
   const mutation = useMutation({
     mutationFn: async () => {
+      const name = businessName.trim();
+      if (!name) throw new Error(isLawFirm ? "Firm name is required." : "Business name is required.");
+      if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+        throw new Error("Please enter a valid contact email or leave it blank.");
+      }
+      if (contactPhone && !/^[+()\-.\s\d]{7,}$/.test(contactPhone)) {
+        throw new Error("Phone number doesn't look right. Use digits, spaces, dashes, or parentheses.");
+      }
+      const stateUpper = state.trim().toUpperCase();
+      if (stateUpper && !/^[A-Z]{2}$/.test(stateUpper)) {
+        throw new Error("State must be a 2-letter US code (e.g. GA, CA).");
+      }
+      if (estimatedValue && Number(estimatedValue) < 0) {
+        throw new Error("Estimated value can't be negative.");
+      }
       const noteText = [source ? `Source: ${source}` : "", notes].filter(Boolean).join("\n");
 
       if (isLawFirm) {
         const { data: firm, error: fErr } = await supabase
           .from("law_firms")
           .insert({
-            firm_name: businessName,
+            firm_name: name,
             contact_name: contactName || null,
             contact_email: contactEmail || null,
             contact_phone: contactPhone || null,
             city: city || null,
-            state: state || null,
+            state: stateUpper || null,
             status: "prospect",
             assigned_sales_rep: user?.id,
             source: source || null,
@@ -73,12 +88,12 @@ export default function LeadCaptureForm({ onSuccess, participantType = "provider
         const { data: provider, error: pErr } = await supabase
           .from("providers")
           .insert({
-            business_name: businessName,
+            business_name: name,
             contact_name: contactName || null,
             contact_email: contactEmail || null,
             contact_phone: contactPhone || null,
             city: city || null,
-            state: state || null,
+            state: stateUpper || null,
             status: "prospect",
             assigned_sales_rep: user?.id,
             notes: noteText,
@@ -122,7 +137,7 @@ export default function LeadCaptureForm({ onSuccess, participantType = "provider
     <div className="space-y-4">
       <div>
         <Label>{isLawFirm ? "Firm Name *" : "Business Name *"}</Label>
-        <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder={isLawFirm ? "Smith & Partners LLP" : "Acme Corp"} />
+        <Input maxLength={255} value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder={isLawFirm ? "Smith & Partners LLP" : "Acme Corp"} />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -143,7 +158,7 @@ export default function LeadCaptureForm({ onSuccess, participantType = "provider
         </div>
         <div>
           <Label>Estimated Value ($)</Label>
-          <Input type="number" value={estimatedValue} onChange={(e) => setEstimatedValue(e.target.value)} placeholder="0" />
+          <Input type="number" min={0} step={100} value={estimatedValue} onChange={(e) => setEstimatedValue(e.target.value)} placeholder="0" />
         </div>
       </div>
 
@@ -154,7 +169,7 @@ export default function LeadCaptureForm({ onSuccess, participantType = "provider
         </div>
         <div>
           <Label>State</Label>
-          <Input value={state} onChange={(e) => setState(e.target.value)} />
+          <Input maxLength={2} value={state} onChange={(e) => setState(e.target.value.toUpperCase())} placeholder="GA" />
         </div>
       </div>
 

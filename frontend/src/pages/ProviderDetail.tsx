@@ -137,13 +137,29 @@ export default function ProviderDetail() {
         provider_id: id!, user_id: user!.id, activity_type: "status_change",
         description: `Status changed to ${status.replace(/_/g, " ")}`,
       });
+
+      // Churn cascade: cancel active subscriptions and terminate active
+      // contracts so MRR + reporting stay accurate.
+      if (status === "churned") {
+        await supabase.from("provider_subscriptions")
+          .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+          .eq("provider_id", id!)
+          .eq("status", "active");
+        await supabase.from("contracts")
+          .update({ status: "terminated" as any })
+          .eq("provider_id", id!)
+          .in("status", ["active", "signed", "sent", "negotiating"] as any);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["provider", id] });
       queryClient.invalidateQueries({ queryKey: ["provider-activities", id] });
+      queryClient.invalidateQueries({ queryKey: ["provider-subscriptions", id] });
+      queryClient.invalidateQueries({ queryKey: ["v-contract-list"] });
       setStatusOpen(false);
       toast.success("Status updated");
     },
+    onError: (e: any) => toast.error(e?.message || "Could not update status"),
   });
 
   const addActivity = useMutation({

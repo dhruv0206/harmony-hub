@@ -157,28 +157,47 @@ export default function CounterSignPage() {
         metadata: { admin_name: profile?.full_name, admin_title: adminTitle },
       });
 
-      // Notify provider
-      const providerEmail = (sigRequest as any)?.providers?.contact_email;
-      if (providerEmail) {
-        const { data: provProfile } = await supabase.from("profiles").select("id").eq("email", providerEmail).maybeSingle();
-        if (provProfile) {
+      // Also flip the parent contract to active so reporting/UI reflects it.
+      if (sigRequest!.contract_id) {
+        await supabase.from("contracts")
+          .update({ status: "active" as any })
+          .eq("id", sigRequest!.contract_id);
+      }
+
+      // Notify recipient — provider OR law firm.
+      const isLawFirm = !!(sigRequest as any)?.law_firm_id;
+      const recipientEmail = (sigRequest as any)?.providers?.contact_email
+        || (sigRequest as any)?.law_firms?.contact_email;
+      const recipientLink = isLawFirm ? "/lf/documents" : "/my-documents";
+      if (recipientEmail) {
+        const { data: recipProfile } = await supabase.from("profiles").select("id").eq("email", recipientEmail).maybeSingle();
+        if (recipProfile) {
           await supabase.from("notifications").insert({
-            user_id: provProfile.id,
+            user_id: recipProfile.id,
             title: `${documentName} is fully executed`,
             message: `Your document "${documentName}" has been counter-signed and is now fully executed. Download it from your portal.`,
             type: "info",
-            link: "/my-documents",
+            link: recipientLink,
           });
         }
       }
 
-      // Activity log
-      await supabase.from("activities").insert({
-        provider_id: sigRequest!.provider_id,
-        user_id: user!.id,
-        activity_type: "status_change" as any,
-        description: `Admin counter-signed "${documentName}" — now fully executed`,
-      });
+      // Activity log — write to the right activities table.
+      if (isLawFirm) {
+        await supabase.from("law_firm_activities").insert({
+          law_firm_id: (sigRequest as any).law_firm_id,
+          user_id: user!.id,
+          activity_type: "status_change",
+          description: `Admin counter-signed "${documentName}" — now fully executed`,
+        });
+      } else {
+        await supabase.from("activities").insert({
+          provider_id: sigRequest!.provider_id,
+          user_id: user!.id,
+          activity_type: "status_change" as any,
+          description: `Admin counter-signed "${documentName}" — now fully executed`,
+        });
+      }
 
       // Check if part of package — unlock next doc
       if (providerDocumentId) {

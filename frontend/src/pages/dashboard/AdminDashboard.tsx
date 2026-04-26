@@ -86,15 +86,16 @@ function useNeedsAttention() {
     queryFn: async () => {
       const items: { id: string; icon: string; label: string; entity: string; urgency: string; link: string; priority: number }[] = [];
 
-      // Past due invoices
+      // Past due invoices (provider OR law-firm side)
       const { data: pastDue } = await supabase.from("invoices")
-        .select("id, invoice_number, due_date, providers(business_name)")
+        .select("id, invoice_number, due_date, providers(business_name), law_firms(firm_name)")
         .eq("status", "past_due").order("due_date").limit(5);
       for (const inv of pastDue ?? []) {
         const days = differenceInDays(new Date(), new Date(inv.due_date));
         items.push({
           id: `inv-${inv.id}`, icon: "💰", label: `Invoice ${inv.invoice_number} past due`,
-          entity: (inv.providers as any)?.business_name ?? "", urgency: `${days}d overdue`,
+          entity: (inv.providers as any)?.business_name || (inv.law_firms as any)?.firm_name || "",
+          urgency: `${days}d overdue`,
           link: `/billing/invoices/${inv.id}`, priority: days > 30 ? 1 : 2,
         });
       }
@@ -144,14 +145,15 @@ function useNeedsAttention() {
       const thirtyDays = new Date();
       thirtyDays.setDate(thirtyDays.getDate() + 30);
       const { data: expiring } = await supabase.from("contracts")
-        .select("id, contract_type, end_date, providers(business_name)")
+        .select("id, contract_type, end_date, providers(business_name), law_firms(firm_name)")
         .eq("status", "active").lte("end_date", thirtyDays.toISOString().split("T")[0])
         .gte("end_date", new Date().toISOString().split("T")[0]).limit(5);
       for (const c of expiring ?? []) {
         const days = differenceInDays(new Date(c.end_date!), new Date());
         items.push({
           id: `ctr-${c.id}`, icon: "📋", label: `${c.contract_type} contract expiring`,
-          entity: (c.providers as any)?.business_name ?? "", urgency: `${days}d left`,
+          entity: (c.providers as any)?.business_name || (c.law_firms as any)?.firm_name || "",
+          urgency: `${days}d left`,
           link: `/contracts/${c.id}`, priority: days < 7 ? 1 : 4,
         });
       }
@@ -169,7 +171,7 @@ function useTodayEvents() {
       const start = new Date(); start.setHours(0, 0, 0, 0);
       const end = new Date(); end.setHours(23, 59, 59, 999);
       const { data } = await supabase.from("calendar_events")
-        .select("id, title, start_time, event_type, providers(business_name), status")
+        .select("id, title, start_time, event_type, providers(business_name), law_firms(firm_name), status")
         .gte("start_time", start.toISOString())
         .lte("start_time", end.toISOString())
         .order("start_time");
@@ -409,7 +411,7 @@ export default function AdminDashboard() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{ev.title}</p>
-                  <p className="text-xs text-muted-foreground truncate">{(ev.providers as any)?.business_name ?? ""}</p>
+                  <p className="text-xs text-muted-foreground truncate">{(ev.providers as any)?.business_name || (ev.law_firms as any)?.firm_name || ""}</p>
                 </div>
                 <Badge className={`text-xs shrink-0 ${EVENT_TYPE_COLORS[ev.event_type] || "bg-muted text-muted-foreground"}`}>
                   {ev.event_type?.replace(/_/g, " ")}

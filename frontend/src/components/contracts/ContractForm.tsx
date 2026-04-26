@@ -139,6 +139,9 @@ export default function ContractForm({ contractId, defaultProviderId, defaultLaw
       if (dealValue && Number(dealValue) < 0) {
         throw new Error("Deal value can't be negative.");
       }
+      if (dealValue && Number(dealValue) > 100_000_000) {
+        throw new Error("Deal value can't exceed $100M. Double-check the figure.");
+      }
       if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
         throw new Error("End date must be on or after the start date.");
       }
@@ -295,7 +298,7 @@ export default function ContractForm({ contractId, defaultProviderId, defaultLaw
 
       <div>
         <Label>Deal Value ($)</Label>
-        <Input type="number" value={dealValue} onChange={(e) => setDealValue(e.target.value)} placeholder="0" />
+        <Input type="number" min={0} max={100000000} step={1000} value={dealValue} onChange={(e) => setDealValue(e.target.value)} placeholder="0" />
       </div>
 
       <div className="grid grid-cols-3 gap-4">

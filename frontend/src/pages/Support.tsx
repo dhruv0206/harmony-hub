@@ -129,11 +129,11 @@ export default function Support() {
             <div className="space-y-4">
               <div>
                 <Label>Subject *</Label>
-                <Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="Brief description of your issue" />
+                <Input maxLength={200} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="Brief description of your issue" />
               </div>
               <div>
                 <Label>Description</Label>
-                <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={4} placeholder="Provide details about your issue..." />
+                <Textarea maxLength={4000} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={4} placeholder="Provide details about your issue..." />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

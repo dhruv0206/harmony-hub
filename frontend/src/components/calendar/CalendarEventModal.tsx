@@ -90,8 +90,15 @@ export function CalendarEventModal({ open, onClose, event }: Props) {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!form.title.trim()) throw new Error("Title is required.");
       const startTime = new Date(`${form.start_date}T${form.start_time}`);
       const endTime = new Date(`${form.start_date}T${form.end_time}`);
+      if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+        throw new Error("Please pick valid start and end times.");
+      }
+      if (endTime <= startTime) {
+        throw new Error("End time must be after start time.");
+      }
 
       const payload: any = {
         title: form.title,
@@ -153,7 +160,7 @@ export function CalendarEventModal({ open, onClose, event }: Props) {
         <div className="space-y-4 mt-2">
           <div>
             <Label>Title *</Label>
-            <Input value={form.title} onChange={e => update("title", e.target.value)} placeholder="Event title" />
+            <Input maxLength={255} value={form.title} onChange={e => update("title", e.target.value)} placeholder="Event title" />
           </div>
 
           <div>

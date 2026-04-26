@@ -96,6 +96,7 @@ export default function InvoicesPage() {
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ["invoices-list"] });
     },
+    onError: (e: any) => toast.error(e?.message || "Could not send invoices"),
   });
 
   const bulkVoidMutation = useMutation({
@@ -108,6 +109,7 @@ export default function InvoicesPage() {
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ["invoices-list"] });
     },
+    onError: (e: any) => toast.error(e?.message || "Could not void invoices"),
   });
 
   const fmt = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -154,8 +156,28 @@ export default function InvoicesPage() {
         </Select>
         {selected.size > 0 && (
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => bulkSendMutation.mutate(Array.from(selected))}><Send className="mr-1 h-3 w-3" />Send ({selected.size})</Button>
-            <Button size="sm" variant="outline" onClick={() => bulkVoidMutation.mutate(Array.from(selected))}><XCircle className="mr-1 h-3 w-3" />Void ({selected.size})</Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (window.confirm(`Mark ${selected.size} invoice${selected.size === 1 ? "" : "s"} as sent?`)) {
+                  bulkSendMutation.mutate(Array.from(selected));
+                }
+              }}
+            >
+              <Send className="mr-1 h-3 w-3" />Send ({selected.size})
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (window.confirm(`Void ${selected.size} invoice${selected.size === 1 ? "" : "s"}? This can't be undone.`)) {
+                  bulkVoidMutation.mutate(Array.from(selected));
+                }
+              }}
+            >
+              <XCircle className="mr-1 h-3 w-3" />Void ({selected.size})
+            </Button>
           </div>
         )}
       </div>

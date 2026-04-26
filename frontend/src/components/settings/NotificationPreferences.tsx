@@ -75,15 +75,6 @@ export default function NotificationPreferences() {
             <Switch checked={isEnabled(cat.key)} onCheckedChange={() => toggle(cat.key)} />
           </div>
         ))}
-        <div className="pt-3 border-t">
-          <div className="flex items-center justify-between py-2 opacity-50">
-            <div>
-              <Label className="text-sm font-medium">Email Notifications</Label>
-              <p className="text-xs text-muted-foreground">Send email for each notification (coming soon)</p>
-            </div>
-            <Switch disabled />
-          </div>
-        </div>
       </CardContent>
     </Card>
   );

@@ -72,11 +72,16 @@ export default function DealTypes() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!form.name.trim()) throw new Error("Name is required.");
+      const rate = form.commission_rate ? Number(form.commission_rate) : null;
+      if (rate !== null && (Number.isNaN(rate) || rate < 0 || rate > 100)) {
+        throw new Error("Commission rate must be between 0 and 100.");
+      }
       const payload = {
-        name: form.name,
+        name: form.name.trim(),
         description: form.description || null,
         default_terms: form.default_terms || null,
-        commission_rate: form.commission_rate ? Number(form.commission_rate) : null,
+        commission_rate: rate,
         color: form.color,
       };
       if (editId) {
@@ -179,7 +184,17 @@ export default function DealTypes() {
                         <TableCell>
                           <div className="flex gap-1">
                             <Button variant="ghost" size="icon" onClick={() => openEdit(dt)}><Edit className="h-4 w-4" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => deleteMutation.mutate(dt.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                if (window.confirm(`Delete "${dt.name}"? This can't be undone.`)) {
+                                  deleteMutation.mutate(dt.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -233,7 +248,7 @@ export default function DealTypes() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Commission Rate (%)</Label>
-                <Input type="number" value={form.commission_rate} onChange={(e) => setForm({ ...form, commission_rate: e.target.value })} placeholder="0" />
+                <Input type="number" min={0} max={100} step={0.1} value={form.commission_rate} onChange={(e) => setForm({ ...form, commission_rate: e.target.value })} placeholder="0" />
               </div>
               <div>
                 <Label>Badge Color</Label>
