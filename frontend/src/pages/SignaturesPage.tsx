@@ -133,6 +133,23 @@ export default function SignaturesPage() {
         actor_id: user?.id,
         metadata: { type: "reset_after_lockout" },
       });
+
+      // Tell the recipient their link works again so they can re-sign without
+      // having to ping the admin asking why they're locked out.
+      const recipientEmail = r.providers?.contact_email || r.law_firms?.contact_email;
+      if (recipientEmail) {
+        const { data: prof } = await supabase.from("profiles").select("id").eq("email", recipientEmail).maybeSingle();
+        if (prof) {
+          await supabase.from("notifications").insert({
+            user_id: prof.id,
+            title: "Your signing link is ready again",
+            message: "We've reset your verification — please open the signing link to try again.",
+            type: "warning",
+            link: `/sign/${r.id}?token=${r.signer_token}`,
+          });
+        }
+      }
+
       return `${window.location.origin}/sign/${r.id}?token=${(r as any).signer_token}`;
     },
     onSuccess: async (link) => {

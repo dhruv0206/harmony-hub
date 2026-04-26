@@ -166,13 +166,50 @@ export default function LawFirmDetail() {
         law_firm_id: id!, user_id: user!.id, activity_type: "status_change",
         description: `Status changed to ${status.replace(/_/g, " ")}`,
       }) as any);
+
+      // When a firm becomes contracted, kick off an onboarding workflow if
+      // they don't already have one — same as the provider side.
+      if (status === "contracted") {
+        const { data: existing } = await supabase
+          .from("onboarding_workflows")
+          .select("id")
+          .eq("law_firm_id", id!)
+          .limit(1);
+        if (!existing || existing.length === 0) {
+          await supabase.from("onboarding_workflows").insert({
+            law_firm_id: id!,
+            participant_type: "law_firm",
+            current_step: 1,
+            total_steps: 5,
+            status: "in_progress" as any,
+            started_at: new Date().toISOString(),
+            onboarding_stage: "documents",
+            initiated_by: user!.id,
+          });
+        }
+      }
+
+      // Churn cascade — match the provider side.
+      if (status === "churned") {
+        await supabase.from("law_firm_subscriptions")
+          .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+          .eq("law_firm_id", id!)
+          .eq("status", "active");
+        await supabase.from("contracts")
+          .update({ status: "terminated" as any })
+          .eq("law_firm_id", id!)
+          .in("status", ["active", "signed", "sent", "negotiating"] as any);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["law-firm", id] });
       queryClient.invalidateQueries({ queryKey: ["law-firm-activities", id] });
+      queryClient.invalidateQueries({ queryKey: ["onboarding-workflows"] });
+      queryClient.invalidateQueries({ queryKey: ["v-contract-list"] });
       setStatusOpen(false);
       toast.success("Status updated");
     },
+    onError: (e: any) => toast.error(e?.message || "Could not update status"),
   });
 
   const addActivity = useMutation({

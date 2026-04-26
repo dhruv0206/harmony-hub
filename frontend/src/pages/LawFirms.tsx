@@ -148,7 +148,24 @@ export default function LawFirms() {
   // Mutations
   const createFirm = useMutation({
     mutationFn: async () => {
-      const addressParts = [form.address_line1, form.city, form.state, form.zip_code].filter(Boolean);
+      if (!form.firm_name?.trim()) throw new Error("Firm name is required.");
+      if (form.contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contact_email)) {
+        throw new Error("Please enter a valid contact email or leave it blank.");
+      }
+      if (form.contact_phone && !/^[+()\-.\s\d]{7,}$/.test(form.contact_phone)) {
+        throw new Error("Phone format isn't valid.");
+      }
+      const stateUpper = (form.state || "").trim().toUpperCase();
+      if (stateUpper && !/^[A-Z]{2}$/.test(stateUpper)) {
+        throw new Error("State must be a 2-letter US code (e.g. GA).");
+      }
+      if (form.zip_code && !/^\d{5}(-\d{4})?$/.test(form.zip_code)) {
+        throw new Error("ZIP must be 5 digits or 5+4.");
+      }
+      if (form.website && !/^https?:\/\//.test(form.website)) {
+        throw new Error("Website must start with http:// or https://.");
+      }
+      const addressParts = [form.address_line1, form.city, stateUpper, form.zip_code].filter(Boolean);
       let lat: number | null = null;
       let lng: number | null = null;
       if (addressParts.length >= 2) {
@@ -161,7 +178,7 @@ export default function LawFirms() {
         }
       }
       const payload: any = {
-        firm_name: form.firm_name,
+        firm_name: form.firm_name.trim(),
         dba_name: form.dba_name || null,
         contact_name: form.contact_name || null,
         contact_email: form.contact_email || null,
@@ -169,7 +186,7 @@ export default function LawFirms() {
         address_line1: form.address_line1 || null,
         address_line2: form.address_line2 || null,
         city: form.city || null,
-        state: form.state || null,
+        state: (form.state || "").trim().toUpperCase() || null,
         zip_code: form.zip_code || null,
         website: form.website || null,
         firm_size: form.firm_size || null,
