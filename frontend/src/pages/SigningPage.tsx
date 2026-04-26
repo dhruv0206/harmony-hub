@@ -1149,10 +1149,10 @@ export default function SigningPage() {
                   {/* Fallback: simple signature pad */}
                   <div>
                     <Label className="mb-2 block">Draw your signature</Label>
-                    <div className="border-2 border-dashed border-primary/30 rounded-lg bg-card">
+                    <div className="border-2 border-dashed border-primary/30 rounded-lg bg-white">
                       <SignatureCanvas
                         ref={fallbackSigRef}
-                        penColor="hsl(var(--foreground))"
+                        penColor="#1a1a1a"
                         canvasProps={{ className: "rounded-lg touch-none", width: 500, height: 192 }}
                       />
                     </div>

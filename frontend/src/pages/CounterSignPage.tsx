@@ -99,6 +99,36 @@ export default function CounterSignPage() {
     enabled: !!template?.file_url,
   });
 
+  // Fallback: when this signature request is for a directly-uploaded contract
+  // (no document_template), pull the PDF off the contracts row.
+  const contractId = (sigRequest as any)?.contract_id;
+  const { data: contractDoc } = useQuery({
+    queryKey: ["counter-sign-contract", contractId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("contracts")
+        .select("document_url, contract_type")
+        .eq("id", contractId!)
+        .maybeSingle();
+      return data;
+    },
+    enabled: !!contractId && !providerDocumentId,
+  });
+
+  const { data: contractFileUrl } = useQuery({
+    queryKey: ["counter-sign-contract-url", contractDoc?.document_url],
+    queryFn: async () => {
+      if (!contractDoc?.document_url) return null;
+      if (contractDoc.document_url.startsWith("http")) return contractDoc.document_url;
+      const { data } = await supabase.storage.from("contracts").createSignedUrl(contractDoc.document_url, 3600);
+      return data?.signedUrl || null;
+    },
+    enabled: !!contractDoc?.document_url,
+  });
+
+  const documentFileUrl = templateFileUrl || contractFileUrl;
+  const documentFileType = template?.file_type || (contractDoc?.document_url?.toLowerCase().endsWith(".docx") ? "docx" : "pdf");
+
   // Fetch audit log for verification methods
   const { data: auditLogs } = useQuery({
     queryKey: ["counter-sign-audit", requestId],
@@ -115,7 +145,8 @@ export default function CounterSignPage() {
 
   const certData = signedDoc?.certificate_data as any;
   const providerName = (sigRequest as any)?.providers?.business_name || "Provider";
-  const documentName = template?.name || "Document";
+  const documentName = template?.name
+    || (contractDoc?.contract_type ? `${contractDoc.contract_type} Contract` : "Document");
 
   // Counter-sign mutation
   const counterSignMutation = useMutation({
@@ -212,8 +243,8 @@ export default function CounterSignPage() {
           const nextDoc = allDocs.find(d =>
             d.signing_order != null && d.signing_order > (currentOrder || 0) && d.status === "pending"
           );
-          if (nextDoc && providerEmail) {
-            const { data: pp } = await supabase.from("profiles").select("id").eq("email", providerEmail).maybeSingle();
+          if (nextDoc && recipientEmail) {
+            const { data: pp } = await supabase.from("profiles").select("id").eq("email", recipientEmail).maybeSingle();
             if (pp) {
               await supabase.from("notifications").insert({
                 user_id: pp.id,
@@ -279,11 +310,11 @@ export default function CounterSignPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {templateFileUrl ? (
-                template?.file_type === "docx" ? (
-                  <DocxViewer url={templateFileUrl} />
+              {documentFileUrl ? (
+                documentFileType === "docx" ? (
+                  <DocxViewer url={documentFileUrl} />
                 ) : (
-                  <PDFViewer fileUrl={templateFileUrl} />
+                  <PDFViewer fileUrl={documentFileUrl} />
                 )
               ) : (
                 <div className="py-12 text-center text-muted-foreground">No document file available</div>
@@ -378,11 +409,11 @@ export default function CounterSignPage() {
 
               <div>
                 <Label className="text-xs text-muted-foreground mb-2 block">Draw Your Signature</Label>
-                <div className="border-2 border-dashed border-border rounded-lg overflow-hidden bg-background flex items-center justify-center p-2">
+                <div className="border-2 border-dashed border-border rounded-lg overflow-hidden bg-white flex items-center justify-center p-2">
                   <SignatureCanvas
                     ref={sigCanvas}
                     canvasProps={{ className: "rounded touch-none", width: 500, height: 128 }}
-                    penColor="black"
+                    penColor="#1a1a1a"
                   />
                 </div>
                 <Button variant="ghost" size="sm" className="mt-1 text-xs" onClick={() => sigCanvas.current?.clear()}>
