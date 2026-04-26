@@ -79,7 +79,7 @@ export default function SigningPage() {
   const [sigModalOpen, setSigModalOpen] = useState(false);
   const [sigModalFieldId, setSigModalFieldId] = useState<string | null>(null);
   const [sigModalType, setSigModalType] = useState<"signature" | "initials">("signature");
-  const [sigMode, setSigMode] = useState<"draw" | "type">("draw");
+  const [sigMode, setSigMode] = useState<"draw" | "type" | "saved">("draw");
   const [typedSig, setTypedSig] = useState("");
   const [savedSignature, setSavedSignature] = useState<string | null>(null);
   const [savedInitials, setSavedInitials] = useState<string | null>(null);
@@ -167,6 +167,25 @@ export default function SigningPage() {
     assigned_sales_rep: null,
   } : null);
   const providerId = sigRequest?.provider_id;
+
+  // Pull the recipient's saved signature (if any) so they can apply it with
+  // one click instead of redrawing every time. Looked up by their contact
+  // email — matches whether they're logged in or coming through a token link.
+  const recipientEmail: string | undefined =
+    (sigRequest?.providers as any)?.contact_email
+    || (sigRequest as any)?.law_firms?.contact_email;
+  const { data: savedSignature } = useQuery({
+    queryKey: ["recipient-saved-signature", recipientEmail],
+    enabled: !!recipientEmail,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("saved_signature_data")
+        .eq("email", recipientEmail!)
+        .maybeSingle();
+      return (data as any)?.saved_signature_data as string | null;
+    },
+  });
 
   // Signing fields for this template
   const { data: signingFields } = useQuery({
@@ -477,7 +496,10 @@ export default function SigningPage() {
   const openSignatureModal = (fieldId: string, type: "signature" | "initials") => {
     setSigModalFieldId(fieldId);
     setSigModalType(type);
-    setSigMode("draw");
+    // Default to "Use saved" if the recipient has one — saves a click.
+    // Initials are typically distinct from a full signature, so even a saved
+    // signature won't be auto-suggested for initials fields.
+    setSigMode(savedSignature && type === "signature" ? "saved" : "draw");
     setTypedSig("");
     setSigModalOpen(true);
   };
@@ -485,7 +507,13 @@ export default function SigningPage() {
   const applySignature = () => {
     if (!sigModalFieldId) return;
     let dataUrl = "";
-    if (sigMode === "draw") {
+    if (sigMode === "saved") {
+      if (!savedSignature) {
+        toast.error("No saved signature on file");
+        return;
+      }
+      dataUrl = savedSignature;
+    } else if (sigMode === "draw") {
       if (!sigPadRef.current || sigPadRef.current.isEmpty()) {
         toast.error("Please draw your signature");
         return;
@@ -1168,11 +1196,21 @@ export default function SigningPage() {
             <DialogTitle>{sigModalType === "signature" ? "Draw Your Signature" : "Draw Your Initials"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              {savedSignature && sigModalType === "signature" && (
+                <Button variant={sigMode === "saved" ? "default" : "outline"} size="sm" onClick={() => setSigMode("saved")}>
+                  Use saved
+                </Button>
+              )}
               <Button variant={sigMode === "draw" ? "default" : "outline"} size="sm" onClick={() => setSigMode("draw")}>Draw</Button>
               <Button variant={sigMode === "type" ? "default" : "outline"} size="sm" onClick={() => setSigMode("type")}>Type</Button>
             </div>
-            {sigMode === "draw" ? (
+            {sigMode === "saved" ? (
+              <div className="border-2 border-dashed border-primary/30 rounded-lg bg-white p-4 flex flex-col items-center gap-2">
+                <p className="text-xs text-muted-foreground">Your signature on file</p>
+                <img src={savedSignature!} alt="Saved signature" className="max-h-32" />
+              </div>
+            ) : sigMode === "draw" ? (
               <div>
                 <div className="border-2 border-dashed border-primary/30 rounded-lg bg-white flex items-center justify-center p-2">
                   {/* Canvas intrinsic width MUST match the CSS width or the
@@ -1213,7 +1251,7 @@ export default function SigningPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSigModalOpen(false)}>Cancel</Button>
-            <Button onClick={applySignature} disabled={sigMode === "type" && !typedSig.trim()}>Apply</Button>
+            <Button onClick={applySignature} disabled={(sigMode === "type" && !typedSig.trim()) || (sigMode === "saved" && !savedSignature)}>Apply</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

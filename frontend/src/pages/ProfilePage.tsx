@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { User, Building2, Mail, Phone, MapPin, CheckCircle } from "lucide-react";
+import SavedSignatureCard from "@/components/profile/SavedSignatureCard";
 
 export default function ProfilePage() {
   const { user, role } = useAuth();
@@ -260,6 +261,8 @@ export default function ProfilePage() {
       <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="w-full">
         {saveMutation.isPending ? "Saving..." : "Save Changes"}
       </Button>
+
+      <SavedSignatureCard current={(profile as any)?.saved_signature_data || null} />
     </div>
   );
 }

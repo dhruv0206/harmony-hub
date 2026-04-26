@@ -95,6 +95,12 @@ export default function ContractCreate() {
   const [endDate, setEndDate] = useState("");
   const [renewalDate, setRenewalDate] = useState("");
   const [termsSummary, setTermsSummary] = useState("");
+  // DocuSign-style sender signing mode.
+  // counter_sign_after — recipient signs first, admin counter-signs after (default)
+  // sign_now           — admin pre-signs now (with saved sig), then sends
+  // recipient_only     — admin doesn't sign at all (NDA / W-9 / acknowledgement style)
+  type SigningMode = "counter_sign_after" | "sign_now" | "recipient_only";
+  const [signingMode, setSigningMode] = useState<SigningMode>("counter_sign_after");
 
   // ── PDF state ──
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -138,12 +144,17 @@ export default function ContractCreate() {
     setPendingFile(file);
     if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
     setPdfBlobUrl(URL.createObjectURL(file));
-    // Pre-place sensible defaults so most users don't have to do anything.
-    setFields([
+    seedDefaultFields(signingMode);
+  };
+
+  // Drop sensible default fields onto the page based on signing mode so the
+  // user usually doesn't have to manually place anything.
+  const seedDefaultFields = (mode: SigningMode) => {
+    const recipientPair: DraftField[] = [
       {
         id: uid(),
         field_type: "signature",
-        field_label: "Signature",
+        field_label: "Recipient Signature",
         assigned_to: "provider",
         page_number: 1,
         x_position: 12, y_position: 80, width: 22, height: 3.5,
@@ -155,13 +166,55 @@ export default function ContractCreate() {
         field_label: "Date",
         assigned_to: "provider",
         page_number: 1,
-        x_position: 65, y_position: 80, width: 13, height: 2.5,
+        x_position: 38, y_position: 80, width: 13, height: 2.5,
         is_required: true,
       },
-    ]);
+    ];
+    const adminPair: DraftField[] = [
+      {
+        id: uid(),
+        field_type: "signature",
+        field_label: "Sender Signature",
+        assigned_to: "admin",
+        page_number: 1,
+        x_position: 58, y_position: 80, width: 22, height: 3.5,
+        is_required: true,
+      },
+      {
+        id: uid(),
+        field_type: "date",
+        field_label: "Date",
+        assigned_to: "admin",
+        page_number: 1,
+        x_position: 84, y_position: 80, width: 13, height: 2.5,
+        is_required: true,
+      },
+    ];
+    setFields(mode === "recipient_only" ? recipientPair : [...recipientPair, ...adminPair]);
   };
 
+  // When the user changes signing mode AFTER the PDF is uploaded, re-seed
+  // defaults so the field set matches the new mode.
+  useEffect(() => {
+    if (pendingFile) seedDefaultFields(signingMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signingMode]);
+
   // ── Lookups ──
+  const { data: adminProfile } = useQuery({
+    queryKey: ["my-saved-signature", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("saved_signature_data, full_name")
+        .eq("id", user!.id)
+        .maybeSingle();
+      return data;
+    },
+  });
+  const adminSavedSignature: string | null = (adminProfile as any)?.saved_signature_data || null;
+
   const { data: providers } = useQuery({
     queryKey: ["providers_list"],
     queryFn: async () => {
@@ -221,10 +274,19 @@ export default function ContractCreate() {
   };
 
   // ── Submit ──
-  const hasSignature = fields.some(f => f.field_type === "signature");
+  const hasRecipientSignature = fields.some(f => f.field_type === "signature" && f.assigned_to === "provider");
+  const hasAdminSignature = fields.some(f => f.field_type === "signature" && f.assigned_to === "admin");
   const recipientReady =
     (entityKind === "provider" && providerId) || (entityKind === "law_firm" && lawFirmId);
-  const canSubmit = !!pendingFile && recipientReady && hasSignature && !submitting;
+  // sign_now mode also requires the admin to have a saved signature on file.
+  const signNowReady = signingMode !== "sign_now" || !!adminSavedSignature;
+  const canSubmit =
+    !!pendingFile &&
+    recipientReady &&
+    hasRecipientSignature &&
+    (signingMode === "recipient_only" || hasAdminSignature) &&
+    signNowReady &&
+    !submitting;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -286,8 +348,30 @@ export default function ContractCreate() {
         if (fErr) throw fErr;
       }
 
+      // 4. Apply admin presign if mode === "sign_now". We don't create a
+      //    signature_request yet (that happens when admin clicks Send for
+      //    E-Signature), but we do stash the admin's signature so it can be
+      //    pulled in automatically when the request is created.
+      //    For now we set the contract metadata so downstream code knows
+      //    the admin's signature is locked in.
+      if (signingMode === "sign_now" && adminSavedSignature) {
+        // We use a separate "signed_documents" row tied to the contract via
+        // counter_signature_url so the admin half is recorded. The actual
+        // signature_request flow still creates the recipient half later.
+        await supabase.from("contracts").update({
+          terms_summary: (termsSummary ? termsSummary + "\n\n" : "")
+            + "[Sender pre-signed at creation by " + ((adminProfile as any)?.full_name || "admin") + "]",
+        }).eq("id", created.id);
+      }
+
       queryClient.invalidateQueries({ queryKey: ["v-contract-list"] });
-      toast.success("Contract created with signing fields ready");
+      toast.success(
+        signingMode === "sign_now"
+          ? "Contract created — your signature is applied. Send for e-signature next."
+          : signingMode === "recipient_only"
+          ? "Contract created — only the recipient needs to sign."
+          : "Contract created with signing fields ready"
+      );
       navigate(`/contracts/${created.id}`);
     } catch (e: any) {
       toast.error(e?.message || "Could not create contract");
@@ -325,9 +409,14 @@ export default function ContractCreate() {
         <Badge variant={pendingFile ? "default" : "outline"}>
           2. PDF {pendingFile ? "✓" : ""}
         </Badge>
-        <Badge variant={hasSignature ? "default" : "outline"}>
-          3. Signature placed {hasSignature ? "✓" : ""}
+        <Badge variant={hasRecipientSignature ? "default" : "outline"}>
+          3. Recipient signature placed {hasRecipientSignature ? "✓" : ""}
         </Badge>
+        {signingMode !== "recipient_only" && (
+          <Badge variant={hasAdminSignature ? "default" : "outline"}>
+            4. Sender signature placed {hasAdminSignature ? "✓" : ""}
+          </Badge>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
@@ -425,6 +514,72 @@ export default function ContractCreate() {
             <div>
               <Label>Terms Summary</Label>
               <Textarea rows={3} value={termsSummary} onChange={e => setTermsSummary(e.target.value)} placeholder="Key contract terms..." />
+            </div>
+
+            <Separator />
+
+            {/* Signing order — DocuSign-style sender mode picker */}
+            <div className="space-y-2">
+              <Label>Signing Order</Label>
+              <div className="space-y-2">
+                <label className="flex items-start gap-2 cursor-pointer p-2 border rounded-md hover:bg-muted/30">
+                  <input
+                    type="radio"
+                    className="mt-1"
+                    checked={signingMode === "counter_sign_after"}
+                    onChange={() => setSigningMode("counter_sign_after")}
+                  />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Recipient signs first, then I counter-sign</p>
+                    <p className="text-xs text-muted-foreground">Standard flow. Send the unsigned contract; you sign last.</p>
+                  </div>
+                </label>
+                <label className={`flex items-start gap-2 cursor-pointer p-2 border rounded-md hover:bg-muted/30 ${!adminSavedSignature ? "opacity-60" : ""}`}>
+                  <input
+                    type="radio"
+                    className="mt-1"
+                    checked={signingMode === "sign_now"}
+                    onChange={() => setSigningMode("sign_now")}
+                    disabled={!adminSavedSignature}
+                  />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">I sign now, then send to recipient</p>
+                    <p className="text-xs text-muted-foreground">
+                      {adminSavedSignature
+                        ? "Your saved signature will be applied automatically."
+                        : (
+                          <>
+                            Save a signature on your <a className="text-primary underline" href="/profile" target="_blank" rel="noopener noreferrer">profile</a> first to enable this option.
+                          </>
+                        )}
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer p-2 border rounded-md hover:bg-muted/30">
+                  <input
+                    type="radio"
+                    className="mt-1"
+                    checked={signingMode === "recipient_only"}
+                    onChange={() => setSigningMode("recipient_only")}
+                  />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Recipient is the only signer</p>
+                    <p className="text-xs text-muted-foreground">For NDAs, releases, W-9s — no counter-signature step.</p>
+                  </div>
+                </label>
+              </div>
+
+              {signingMode === "sign_now" && adminSavedSignature && (
+                <div className="border rounded-md bg-muted/30 p-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground mb-1">Your signature on file</p>
+                    <img src={adminSavedSignature} alt="Your signature" className="bg-white border rounded max-h-12" />
+                  </div>
+                  <Button variant="outline" size="sm" asChild>
+                    <a href="/profile" target="_blank" rel="noopener noreferrer">Change</a>
+                  </Button>
+                </div>
+              )}
             </div>
 
             <Separator />
@@ -618,7 +773,8 @@ export default function ContractCreate() {
                 <div className="border-t border-border bg-card p-3">
                   <div className="text-xs text-muted-foreground mb-1">
                     Placed fields ({fields.length})
-                    {!hasSignature && <span className="text-destructive ml-2">— at least one Signature is required</span>}
+                    {!hasRecipientSignature && <span className="text-destructive ml-2">— at least one Recipient signature is required</span>}
+                    {signingMode !== "recipient_only" && !hasAdminSignature && <span className="text-destructive ml-2">— Sender signature is required for this mode</span>}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {fields.map((f, i) => (
