@@ -1,30 +1,34 @@
 # Platform Readiness Report
 
 **Date:** 2026-04-25
-**Methodology:** Multi-agent code audit (3 parallel Explore agents) + UI smoke-test of every nav page via Chrome DevTools MCP, console-error-clean as the bar for "ready".
+**Methodology:** Multi-agent code audit (7 parallel Explore agents across two passes) + UI smoke-test of every nav page via Chrome DevTools MCP, console-error-clean as the bar for "ready".
 
 ---
 
 ## TL;DR
 
-**21 bugs found, 21 fixed.** Every admin-facing page in the sidebar nav loads
-clean (no console errors, no broken queries). The end-to-end signing flow
-works for both providers and law firms with status badges flipping correctly.
-Two data-leak bugs in the provider portal were caught and patched.
+**51 bugs found, 51 fixed across 8 commits.** Every admin-facing page in the
+sidebar nav loads clean (no console errors, no broken queries, no 400/406
+network failures). End-to-end signing flow works for providers and law firms
+with status badges, cascades, and counter-sign all wired through. Two
+data-leak bugs in the provider portal patched.
 
 The platform is **ready for demo**.
 
-There is one **known limitation**: the Campaigns + CallQueue subsystem was
-designed before the law-firm participant_type was added, and only fully
-supports the provider path. With 0 seeded campaigns this doesn't break
-anything visible today, but if you create a law-firm campaign, the
-"convert to entity" action will create a provider record. Documented below.
+Two **known limitations**:
+1. The Campaigns + CallQueue subsystem was designed before the law-firm
+   participant_type was added; with 0 seeded campaigns it doesn't break
+   anything today, but a law-firm campaign would convert leads into
+   provider records.
+2. Calendar events have no `law_firm_id` column, so a law-firm-only event
+   can be created (host attached) but won't surface as "their" event in the
+   dashboard's Today widget. Provider events surface normally.
 
 ---
 
 ## What we shipped this session
 
-### Bug fixes (4 commits to master)
+### Bug fixes (8 commits to master)
 
 | Commit | What |
 |---|---|
@@ -32,7 +36,11 @@ anything visible today, but if you create a law-firm campaign, the
 | `a6df37d` | Contract status auto-flips `sent → signed` after recipient signs; "Return to Dashboard" button no longer 404s on `/dashboard` |
 | `d45fe32` | E-Signatures list shows law-firm names (was always "—" because query joined providers but not law_firms); column header renamed Provider → Recipient |
 | `1aa1650` | **P0 batch:** Support.tsx + MyAppointments data leaks; SigningFieldsEditor overlay sized at 0×0 (`width_pct` vs `width`); ContractDetail download used raw storage path; DocumentTemplates uploaded to private bucket via `getPublicUrl()`; `/call-queue/:id` doesn't exist; 6× `.single()` → `.maybeSingle()` |
-| `62d5344` | **Round 2 from UI smoke-test:** AuthContext + 6 more `.single()` bugs (every page load was risking a 406); LeadFinder query returned `undefined` causing React Query to throw |
+| `62d5344` | **Round 2:** AuthContext + 6 more `.single()` bugs; LeadFinder query returned `undefined` causing React Query to throw |
+| `ea3bb5c` | Contracts can no longer be saved without a PDF (server-side validation + disabled button + helper text) |
+| `c5383c0` | **30+ form/UX fixes from a 4-agent deep audit:** required-field validation, regex checks, maxLengths, range bounds, destructive-action confirmations, missing onError handlers, status cascade on churn, counter-sign cascade to contract, polymorphic provider+law-firm joins on the dashboard, removed misleading "Coming Soon" UI |
+| `532a929` | LawFirms create form validation (firm name + email/phone/state/zip/website regex); LawFirmDetail status changes now mirror provider cascade behavior (contracted → onboarding workflow auto-created; churned → cancel subscription + terminate contracts); SignaturesPage reset notifies the recipient |
+| `363155f` | Fixed bad polymorphic join from earlier — invoices and law_firm_invoices are separate tables, not a single FK; dashboard now queries both and merges |
 
 ### Demo data (committed earlier in the session)
 - DB flushed and reseeded with 82 providers, 33 law firms, 86 contracts,
