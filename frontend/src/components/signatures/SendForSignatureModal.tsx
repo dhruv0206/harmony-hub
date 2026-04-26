@@ -48,6 +48,20 @@ export default function SendForSignatureModal({ open, onOpenChange, contract }: 
       if (!hasDocument) {
         throw new Error("Upload a contract PDF first — Edit contract → attach PDF.");
       }
+      // Expiration sanity (UI clamps to 1-30 but type=number lets users paste anything).
+      if (!expirationDays || expirationDays < 1 || expirationDays > 30) {
+        throw new Error("Expiration must be between 1 and 30 days.");
+      }
+      // Make sure the recipient has an email — otherwise the signing link
+      // has nowhere to go. (Once email delivery is wired up, this prevents
+      // sending to nobody. For now it surfaces a clear "fix the profile" toast
+      // instead of silently creating an unreachable signature_request.)
+      const recipientEmail = isLawFirm
+        ? (contract?.law_firms as any)?.contact_email
+        : (contract?.providers as any)?.contact_email;
+      if (!recipientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
+        throw new Error(`The ${isLawFirm ? "law firm" : "provider"} doesn't have a valid email on file. Add one on their profile first.`);
+      }
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + expirationDays);
 

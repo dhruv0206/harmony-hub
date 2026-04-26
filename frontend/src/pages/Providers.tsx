@@ -212,11 +212,27 @@ export default function Providers() {
 
   const createProvider = useMutation({
     mutationFn: async () => {
+      // Validate before hitting the DB so we surface friendly errors instead of
+      // letting a malformed email/phone/zip silently land in the row.
+      if (!form.business_name?.trim()) throw new Error("Business name is required.");
+      if (form.contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contact_email)) {
+        throw new Error("Contact email is not a valid email address.");
+      }
+      if (form.contact_phone && !/^[\d\s\-\(\)\+]{7,}$/.test(form.contact_phone)) {
+        throw new Error("Contact phone looks invalid. Use digits, dashes, parens, or +.");
+      }
+      if (form.zip_code && !/^\d{5}(-\d{4})?$/.test(form.zip_code)) {
+        throw new Error("ZIP code must be 5 digits or 5+4 (e.g. 30309 or 30309-1234).");
+      }
+      if (form.state && form.state.trim().length !== 2) {
+        throw new Error("State must be a 2-letter abbreviation (e.g. GA, TX).");
+      }
+
       const addressParts = [form.address_line1, form.city, form.state, form.zip_code].filter(Boolean);
       const geo = addressParts.length >= 2 ? await backendGeocode(addressParts.join(", ")).catch(() => null) : null;
       const { error } = await supabase.from("providers").insert({
         business_name: form.business_name, contact_name: form.contact_name || null, contact_email: form.contact_email || null, contact_phone: form.contact_phone || null,
-        address_line1: form.address_line1 || null, address_line2: form.address_line2 || null, city: form.city || null, state: form.state || null, zip_code: form.zip_code || null,
+        address_line1: form.address_line1 || null, address_line2: form.address_line2 || null, city: form.city || null, state: form.state ? form.state.toUpperCase() : null, zip_code: form.zip_code || null,
         provider_type: form.provider_type || null, status: form.status as any, notes: form.notes || null,
         latitude: geo?.lat ?? null, longitude: geo?.lng ?? null, assigned_sales_rep: user!.id,
       });

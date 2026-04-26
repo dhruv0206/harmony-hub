@@ -135,6 +135,24 @@ export default function ContractForm({ contractId, defaultProviderId, defaultLaw
 
   const mutation = useMutation({
     mutationFn: async () => {
+      // Sender-side validation: don't let nonsensical values slip into the DB.
+      if (dealValue && Number(dealValue) < 0) {
+        throw new Error("Deal value can't be negative.");
+      }
+      if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
+        throw new Error("End date must be on or after the start date.");
+      }
+      if (renewalDate && endDate && new Date(renewalDate) > new Date(endDate)) {
+        throw new Error("Renewal date must be on or before the end date.");
+      }
+      if (renewalDate && startDate && new Date(renewalDate) < new Date(startDate)) {
+        throw new Error("Renewal date must be on or after the start date.");
+      }
+      // PDF size cap so we don't blow out client memory on react-pdf rendering.
+      if (pendingFile && pendingFile.size > 25 * 1024 * 1024) {
+        throw new Error("PDF is over 25 MB. Please upload a smaller file.");
+      }
+
       let finalDocUrl = documentUrl;
       if (pendingFile) {
         setUploading(true);
