@@ -86,15 +86,31 @@ function useNeedsAttention() {
     queryFn: async () => {
       const items: { id: string; icon: string; label: string; entity: string; urgency: string; link: string; priority: number }[] = [];
 
-      // Past due invoices (provider OR law-firm side)
-      const { data: pastDue } = await supabase.from("invoices")
-        .select("id, invoice_number, due_date, providers(business_name), law_firms(firm_name)")
-        .eq("status", "past_due").order("due_date").limit(5);
+      // Past due invoices. Provider invoices live in `invoices`, law-firm
+      // invoices live in `law_firm_invoices` (different tables, different
+      // FKs) — query both and merge.
+      const [{ data: pastDue }, { data: pastDueLF }] = await Promise.all([
+        supabase.from("invoices")
+          .select("id, invoice_number, due_date, providers(business_name)")
+          .eq("status", "past_due").order("due_date").limit(5),
+        supabase.from("law_firm_invoices")
+          .select("id, invoice_number, due_date, law_firms(firm_name)")
+          .eq("status", "past_due").order("due_date").limit(5),
+      ]);
       for (const inv of pastDue ?? []) {
         const days = differenceInDays(new Date(), new Date(inv.due_date));
         items.push({
           id: `inv-${inv.id}`, icon: "💰", label: `Invoice ${inv.invoice_number} past due`,
-          entity: (inv.providers as any)?.business_name || (inv.law_firms as any)?.firm_name || "",
+          entity: (inv.providers as any)?.business_name ?? "",
+          urgency: `${days}d overdue`,
+          link: `/billing/invoices/${inv.id}`, priority: days > 30 ? 1 : 2,
+        });
+      }
+      for (const inv of pastDueLF ?? []) {
+        const days = differenceInDays(new Date(), new Date(inv.due_date));
+        items.push({
+          id: `lfinv-${inv.id}`, icon: "💰", label: `Invoice ${inv.invoice_number} past due`,
+          entity: (inv.law_firms as any)?.firm_name ?? "",
           urgency: `${days}d overdue`,
           link: `/billing/invoices/${inv.id}`, priority: days > 30 ? 1 : 2,
         });
@@ -170,8 +186,10 @@ function useTodayEvents() {
     queryFn: async () => {
       const start = new Date(); start.setHours(0, 0, 0, 0);
       const end = new Date(); end.setHours(23, 59, 59, 999);
+      // calendar_events only has provider_id (no law_firm_id), so
+      // law-firm events show their host name without an entity label.
       const { data } = await supabase.from("calendar_events")
-        .select("id, title, start_time, event_type, providers(business_name), law_firms(firm_name), status")
+        .select("id, title, start_time, event_type, providers(business_name), status")
         .gte("start_time", start.toISOString())
         .lte("start_time", end.toISOString())
         .order("start_time");
@@ -411,7 +429,7 @@ export default function AdminDashboard() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{ev.title}</p>
-                  <p className="text-xs text-muted-foreground truncate">{(ev.providers as any)?.business_name || (ev.law_firms as any)?.firm_name || ""}</p>
+                  <p className="text-xs text-muted-foreground truncate">{(ev.providers as any)?.business_name ?? ""}</p>
                 </div>
                 <Badge className={`text-xs shrink-0 ${EVENT_TYPE_COLORS[ev.event_type] || "bg-muted text-muted-foreground"}`}>
                   {ev.event_type?.replace(/_/g, " ")}
